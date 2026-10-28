@@ -10,7 +10,11 @@
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-title" content="Finanças">
-  <link rel="stylesheet" href="style.css">
+  <script>
+    // Aplica o tema salvo antes de desenhar a página (evita piscar)
+    try { var t = localStorage.getItem('mf_theme'); if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="style.css?v=20261028k">
 </head>
 <body>
 
@@ -38,15 +42,22 @@
     <div id="demo-banner" class="demo-banner" hidden>Modo demonstração: dados fictícios, nada é salvo.</div>
     <header class="topbar">
       <h1>Minhas Finanças</h1>
+      <div class="top-actions">
+      <button id="btn-theme" class="icon-btn" type="button" aria-label="Trocar tema"></button>
+      <button id="btn-help" class="icon-btn" type="button" aria-label="Como usar" title="Como usar">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+      </button>
       <button id="btn-menu" class="icon-btn" type="button" aria-label="Menu">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
       </button>
+      </div>
     </header>
 
     <main class="content">
       <nav class="month-nav">
         <button id="btn-prev" class="icon-btn" type="button" aria-label="Mês anterior">‹</button>
         <button id="month-label" class="month-label" type="button" title="Voltar para o mês atual"></button>
+        <button id="btn-hoje" class="btn-hoje" type="button" hidden>Hoje</button>
         <button id="btn-next" class="icon-btn" type="button" aria-label="Próximo mês">›</button>
       </nav>
 
@@ -86,6 +97,12 @@
           <button class="chip" type="button" data-filter="despesas">Despesas</button>
           <button class="chip" type="button" data-filter="cartao">Cartão</button>
         </div>
+        <div id="card-chips" class="chips" hidden></div>
+        <div class="filter-row">
+          <select id="lf-cat" aria-label="Filtrar por categoria"></select>
+          <select id="lf-item" aria-label="Filtrar por item" disabled></select>
+          <button id="lf-clear" class="link-btn" type="button" hidden>Limpar filtros</button>
+        </div>
         <section class="card">
           <div id="list-head" class="list-head"></div>
           <div id="list"></div>
@@ -95,15 +112,15 @@
       <!-- ===== Aba Gráficos ===== -->
       <div class="view" data-view="graf" hidden>
         <section class="card">
-          <h2>Receitas e despesas nos últimos 6 meses</h2>
+          <h2>Receitas e despesas</h2>
           <div id="chart-evo"></div>
         </section>
         <section class="card">
-          <h2>Despesas por categoria</h2>
+          <div class="card-head"><h2>Despesas por categoria</h2><span class="tiny muted">toque para ver o histórico</span></div>
           <div id="chart"></div>
         </section>
         <section class="card">
-          <h2>Receitas por categoria</h2>
+          <div class="card-head"><h2>Receitas por categoria</h2><span class="tiny muted">toque para ver o histórico</span></div>
           <div id="chart-rec"></div>
         </section>
       </div>
@@ -138,7 +155,11 @@
         <input type="radio" name="tipo" id="tipo-rec" value="Receita"><label for="tipo-rec">Receita</label>
       </div>
       <label class="field"><span id="lbl-valor">Valor (R$)</span><input id="f-valor" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
-      <label class="field"><span>Descrição</span><input id="f-desc" maxlength="100" placeholder="Ex.: Mercado" autocomplete="off"></label>
+      <div class="field ac">
+        <label for="f-desc">Descrição</label>
+        <input id="f-desc" maxlength="100" placeholder="Ex.: Restaurante Boa Comida, Luz…" autocomplete="off" autocapitalize="sentences">
+        <div id="desc-sug" class="sug" hidden></div>
+      </div>
       <label class="field"><span>Categoria</span><select id="f-cat"></select></label>
       <div class="row2">
         <label class="field" id="row-pag"><span>Pagamento</span><select id="f-pag"></select></label>
@@ -262,6 +283,7 @@
       <button class="menu-item" type="button" data-open="cards">Cartões de crédito</button>
       <button class="menu-item" type="button" data-open="fixas">Lançamentos fixos</button>
       <button class="menu-item" type="button" data-open="cats">Categorias</button>
+      <button class="menu-item" type="button" data-open="seg">Backup e segurança</button>
       <a id="menu-sheet" class="menu-item" target="_blank" rel="noopener">Abrir planilha no Google</a>
       <button id="menu-reload" class="menu-item" type="button">Atualizar dados</button>
       <button id="menu-logout" class="menu-item danger" type="button">Sair</button>
@@ -273,13 +295,189 @@
   <dialog id="dlg-cats">
     <div class="dlg-body">
       <h2>Categorias</h2>
+      <p class="muted small-text">Toque numa categoria para trocar o ícone ou a cor.</p>
       <div id="cats-list" class="dlg-scroll"></div>
       <form id="form-cat" class="cat-form">
-        <input id="c-nome" class="cat-name" placeholder="Nova categoria" maxlength="40" autocomplete="off">
-        <select id="c-tipo"><option>Despesa</option><option>Receita</option></select>
+        <div class="group-title">Nova categoria</div>
+        <button id="c-ico" class="ico-pick" type="button" aria-label="Escolher ícone" title="Escolher ícone"></button>
+        <input id="c-nome" class="cat-name" placeholder="Nome (ex.: Farmácia)" maxlength="40" autocomplete="off">
+        <select id="c-tipo" class="cat-tipo"><option>Despesa</option><option>Receita</option></select>
         <input id="c-cor" type="color" value="#0f766e" aria-label="Cor">
         <button class="btn btn-primary cat-add" type="submit">Adicionar categoria</button>
       </form>
+      <div class="actions"><span class="spacer"></span><button class="btn btn-ghost" type="button" data-close>Fechar</button></div>
+    </div>
+  </dialog>
+
+  <!-- Editar categoria -->
+  <dialog id="dlg-cat">
+    <form id="form-cat-edit" class="dlg-body" novalidate>
+      <div>
+        <h2 id="ce-title"></h2>
+        <p id="ce-sub" class="muted small-text"></p>
+      </div>
+      <div class="ce-row">
+        <div class="field"><span>Ícone</span><button id="ce-ico" class="ico-pick big" type="button" aria-label="Trocar ícone" title="Trocar ícone"></button></div>
+        <label class="field"><span>Cor</span><input id="ce-cor" type="color"></label>
+      </div>
+      <p class="error dlg-error" hidden></p>
+      <div class="actions">
+        <button type="button" id="btn-cat-del" class="btn btn-danger">Excluir</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-ghost" data-close>Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Histórico -->
+  <dialog id="dlg-hist" class="dlg-wide">
+    <div class="hist-wrap">
+      <div class="hist-top">
+        <button id="hist-back" class="hist-back" type="button" hidden>
+          <span aria-hidden="true">‹</span> <span id="hist-back-lbl">Voltar</span>
+        </button>
+        <span class="spacer"></span>
+        <button class="icon-btn" type="button" data-close aria-label="Fechar histórico" title="Fechar e voltar aos gráficos">✕</button>
+      </div>
+      <div class="hist-scroll" id="hist-body">
+        <div class="hist-head">
+          <span id="hist-ico"></span>
+          <div class="hist-titles"><h2 id="hist-title"></h2><p id="hist-sub" class="muted small-text"></p></div>
+        </div>
+        <div id="hist-chart"></div>
+        <div id="hist-stats" class="hist-stats"></div>
+        <div id="hist-list-title" class="group-title"></div>
+        <div id="hist-list"></div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Seletor de ícones -->
+  <dialog id="dlg-icons">
+    <div class="dlg-body">
+      <h2>Escolha um ícone</h2>
+      <input id="ic-q" class="search" type="search" placeholder="Buscar: mercado, carro, pet, luz…" autocomplete="off">
+      <div id="ic-grid" class="ic-grid"></div>
+      <div class="actions"><span class="tiny muted">Ícones: Lucide</span><span class="spacer"></span><button class="btn btn-ghost" type="button" data-close>Fechar</button></div>
+    </div>
+  </dialog>
+
+  <!-- Como usar -->
+  <dialog id="dlg-help" class="dlg-wide">
+    <div class="dlg-body">
+      <h2>Como usar</h2>
+      <p class="muted small-text">Toque em cada tópico para ver o passo a passo. Esta ajuda fica sempre no botão <strong>?</strong> no topo.</p>
+      <div class="help">
+        <details open>
+          <summary>Lançar um gasto ou uma receita</summary>
+          <ol>
+            <li>Toque no botão <strong>+</strong> no canto da tela.</li>
+            <li>Escolha <strong>Despesa</strong> ou <strong>Receita</strong> e digite o valor (ex.: <em>152,40</em>).</li>
+            <li>Escreva a descrição (ex.: <em>Restaurante Boa Comida</em>, <em>Luz</em>). Ao digitar, aparecem os itens que você já lançou: toque em um e a categoria e a forma de pagamento são preenchidas sozinhas, e o último valor aparece como referência.</li>
+            <li>Em <strong>Pagamento</strong>, escolha <em>Conta corrente</em> ou um dos seus cartões. Na lista, o ícone ganha um selinho: <strong>cifrão verde</strong> para conta corrente e <strong>cartão</strong> (na cor dele) para compras no cartão.</li>
+            <li>Confira data e hora (já vêm preenchidas com agora) e toque em <strong>Salvar</strong>.</li>
+          </ol>
+          <p>Se a data for de outro mês que não o atual, o site pede uma confirmação, para evitar lançar no mês errado sem querer.</p>
+          <p>Para corrigir ou excluir, toque no lançamento na lista.</p>
+        </details>
+        <details>
+          <summary>Cadastrar um cartão de crédito</summary>
+          <ol>
+            <li>Abra o menu <strong>⋯</strong> → <strong>Cartões de crédito</strong> → <strong>+ Novo cartão</strong>.</li>
+            <li>Em <strong>Melhor dia de compra</strong>, coloque o dia em que a fatura vira. Em <strong>Dia de vencimento</strong>, o dia de pagar.</li>
+            <li>Exemplo: vira dia 5 e vence dia 10. Compra no dia 4/10 vence em 10/10; compra no dia 5/10 já fica para 10/11.</li>
+          </ol>
+          <p>O limite é opcional. Se preencher, o site mostra quanto ainda está disponível.</p>
+        </details>
+        <details>
+          <summary>Compras no cartão e parcelas</summary>
+          <ol>
+            <li>No lançamento, escolha o cartão em <strong>Pagamento</strong>.</li>
+            <li>Aparece o campo <strong>Parcelas</strong>. Digite o valor <strong>total</strong> da compra e escolha em quantas vezes.</li>
+            <li>O quadro verde mostra em qual fatura a compra cai e o valor de cada parcela.</li>
+          </ol>
+          <p>Na lista, compras no cartão aparecem com uma <strong>bolinha com o desenho de um cartão</strong> no canto do ícone, na cor do cartão usado.</p>
+          <p>No <strong>Início</strong>, cada cartão mostra a fatura do mês. Toque nele para ver todas as compras daquela fatura. As compras no cartão entram no saldo do mês em que a fatura vence.</p>
+        </details>
+        <details>
+          <summary>Contas fixas (salário, aluguel, luz…)</summary>
+          <ol>
+            <li>Ao lançar, marque <strong>Repetir todo mês</strong>, ou use o menu <strong>⋯</strong> → <strong>Lançamentos fixos</strong>.</li>
+            <li><strong>Valor sempre igual</strong> (salário, prestação, internet): é lançado sozinho quando chega o dia.</li>
+            <li><strong>Valor variável</strong> (luz, água): marque <em>Valor variável</em>. Todo mês ele aparece em <strong>Fixos a confirmar</strong>; toque em <strong>Confirmar</strong>, ajuste o valor e salve.</li>
+          </ol>
+          <p>Parou de pagar algo? Edite o fixo e preencha <strong>Termina em</strong>.</p>
+        </details>
+        <details>
+          <summary>Abas, meses e gráficos</summary>
+          <ul>
+            <li><strong>Início</strong>: saldo do mês, fixos a confirmar, cartões e últimos lançamentos.</li>
+            <li><strong>Lançamentos</strong>: lista completa do mês, com os filtros Todos, Receitas, Despesas e Cartão. Em <em>Cartão</em>, escolha também qual cartão. Embaixo, filtre por <strong>categoria</strong> e depois por <strong>item</strong> (ex.: Alimentação → Restaurante Boa Comida). <em>Limpar filtros</em> volta a mostrar tudo.</li>
+            <li><strong>Gráficos</strong>: receitas e despesas com o mês escolhido no meio (2 meses antes e 2 depois). Toque numa coluna para ir para aquele mês. Embaixo, gastos e receitas por categoria.</li>
+            <li>Use <strong>‹ ›</strong> para trocar de mês. Quando estiver em outro mês, aparece o botão <strong>Hoje</strong> para voltar ao mês atual.</li>
+            <li>Os filtros de categoria e item da aba Lançamentos continuam valendo quando você troca de mês, assim dá para comparar o mesmo item mês a mês.</li>
+            <li>O botão de <strong>sol/lua</strong> no topo troca entre tema claro e escuro.</li>
+          </ul>
+        </details>
+        <details>
+          <summary>Histórico de uma categoria ou item</summary>
+          <ol>
+            <li>Na aba <strong>Gráficos</strong>, toque numa categoria (ex.: <em>Contas</em>).</li>
+            <li>Aparece o gráfico dos últimos 12 meses, o total, a média e a lista <strong>Por item</strong> (ex.: Luz, Água, Internet).</li>
+            <li>Toque num item para ver só ele: quanto gastou em cada mês e todos os lançamentos (compra parcelada aparece uma vez, com o total).</li>
+            <li>No topo, <strong>‹ Voltar</strong> fecha o item e volta para a categoria. O <strong>✕</strong> fecha o histórico e volta para os gráficos.</li>
+            <li>Dentro do item, toque num lançamento para ver os detalhes. Numa compra parcelada aparecem todas as parcelas, com a fatura de cada uma, o que já foi pago e o que falta. <strong>‹ Voltar</strong> volta para o item.</li>
+          </ol>
+          <p>O "item" é a descrição do lançamento. Escreva sempre do mesmo jeito (o autocompletar ajuda nisso) para o histórico ficar certo.</p>
+        </details>
+        <details>
+          <summary>Categorias e ícones</summary>
+          <ol>
+            <li>Menu <strong>⋯</strong> → <strong>Categorias</strong>.</li>
+            <li>Para criar: digite o nome. O site já sugere um ícone; toque no ícone para escolher outro entre mais de 190.</li>
+            <li>Para mudar ícone ou cor de uma categoria existente, toque nela.</li>
+          </ol>
+        </details>
+        <details>
+          <summary>Onde ficam meus dados</summary>
+          <p>Tudo fica na planilha <strong>Minhas Finanças (dados do app) - NÃO APAGAR</strong>, dentro da pasta <strong>Minhas Finanças - app (não apagar)</strong> no seu Google Drive (menu <strong>⋯</strong> → <em>Abrir planilha no Google</em>). Ninguém além de você tem acesso. Dá para abrir no Excel ou ligar no Power BI.</p>
+          <p>Evite renomear as abas ou os títulos das colunas da planilha.</p>
+        </details>
+        <details>
+          <summary>Backup e segurança dos dados</summary>
+          <ul>
+            <li>O site faz <strong>backup automático uma vez por dia</strong> numa área oculta do seu Google Drive e guarda os 15 mais recentes.</li>
+            <li>Se a planilha for parar na <strong>lixeira</strong>, ao abrir o site ele pergunta se quer restaurar.</li>
+            <li>Se ela for <strong>apagada de vez</strong>, o site oferece recriar tudo a partir do último backup.</li>
+            <li>Menu <strong>⋯</strong> → <strong>Backup e segurança</strong>: fazer backup na hora, restaurar um backup escolhido ou baixar uma cópia em Excel.</li>
+          </ul>
+        </details>
+        <details>
+          <summary>Usar como aplicativo no celular</summary>
+          <ul>
+            <li><strong>iPhone</strong>: abra no Safari → botão Compartilhar → <em>Adicionar à Tela de Início</em>.</li>
+            <li><strong>Android</strong>: abra no Chrome → menu ⋮ → <em>Adicionar à tela inicial</em>.</li>
+          </ul>
+        </details>
+      </div>
+      <div class="actions"><span class="spacer"></span><button class="btn btn-primary" type="button" data-close>Entendi</button></div>
+    </div>
+  </dialog>
+
+  <!-- Backup e segurança -->
+  <dialog id="dlg-seg">
+    <div class="dlg-body">
+      <h2>Backup e segurança</h2>
+      <p class="small-text muted">Seus dados ficam na planilha <strong>Minhas Finanças (dados do app) - NÃO APAGAR</strong>, dentro da pasta <strong>Minhas Finanças - app (não apagar)</strong> no seu Google Drive.</p>
+      <div id="seg-info" class="seg-info"></div>
+      <div class="seg-btns">
+        <button id="seg-now" class="btn btn-soft" type="button">Fazer backup agora</button>
+        <button id="seg-restore" class="btn btn-soft" type="button">Restaurar um backup</button>
+        <button id="seg-xlsx" class="btn btn-soft" type="button">Baixar cópia em Excel</button>
+        <a id="seg-folder" class="btn btn-ghost" target="_blank" rel="noopener" hidden>Abrir a pasta no Drive</a>
+      </div>
+      <div id="seg-list" class="dlg-scroll"></div>
       <div class="actions"><span class="spacer"></span><button class="btn btn-ghost" type="button" data-close>Fechar</button></div>
     </div>
   </dialog>
@@ -298,7 +496,18 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="config.js"></script>
-  <script src="app.js"></script>
+  <script>
+    // Se algo falhar ao carregar, mostra o motivo em vez de ficar em "Carregando…"
+    window.addEventListener('error', function (e) {
+      var box = document.getElementById('screen-loading');
+      var msg = document.getElementById('loading-msg');
+      if (!box || box.hidden || !msg) return;
+      var what = e.message || ('não foi possível carregar ' + ((e.target && (e.target.src || e.target.href)) || 'um arquivo'));
+      msg.textContent = 'Erro ao abrir o site: ' + what + '. Recarregue a página (Ctrl+F5 no PC).';
+    }, true);
+  </script>
+  <script src="config.js?v=20261028k"></script>
+  <script src="icons.js?v=20261028k"></script>
+  <script src="app.js?v=20261028k"></script>
 </body>
 </html>

@@ -13,5 +13,7 @@ Site de controle de receitas e despesas. Os dados ficam numa planilha **"Minhas 
 
 ## Planilha
 - Aba `Lancamentos`: ID | Data | Tipo | Descricao | Categoria | Valor | CriadoEm
-- Aba `Categorias`: Nome | Tipo | Cor
+- Aba `Categorias`: Nome | Tipo | Cor | Icone
+- Aba `Cartoes` e `Fixas`: cartões e lançamentos fixos
+- Backups automáticos diários ficam na pasta oculta do app no Drive (appDataFolder)
 Não renomeie as abas nem a coluna A (ID).
