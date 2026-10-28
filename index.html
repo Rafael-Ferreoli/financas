@@ -35,7 +35,7 @@
 
   <!-- App -->
   <div id="screen-app" hidden>
-    <div id="demo-banner" class="demo-banner" hidden>Modo demonstração — dados fictícios, nada é salvo.</div>
+    <div id="demo-banner" class="demo-banner" hidden>Modo demonstração: dados fictícios, nada é salvo.</div>
     <header class="topbar">
       <h1>Minhas Finanças</h1>
       <button id="btn-menu" class="icon-btn" type="button" aria-label="Menu">
@@ -50,44 +50,208 @@
         <button id="btn-next" class="icon-btn" type="button" aria-label="Próximo mês">›</button>
       </nav>
 
+      <!-- ===== Aba Início ===== -->
+      <div class="view" data-view="inicio">
       <section class="summary">
         <div class="stat"><span class="stat-label">Receitas</span><span id="sum-in" class="stat-value pos"></span></div>
         <div class="stat"><span class="stat-label">Despesas</span><span id="sum-out" class="stat-value neg"></span></div>
-        <div class="stat stat-main"><span class="stat-label">Saldo do mês</span><span id="sum-bal" class="stat-value"></span></div>
+        <div class="stat stat-main">
+          <span class="stat-label">Saldo do mês</span>
+          <span id="sum-bal" class="stat-value"></span>
+          <span id="sum-prev" class="sum-prev" hidden></span>
+        </div>
+      </section>
+
+      <section class="card" id="sec-prev" hidden>
+        <div class="card-head"><h2>Fixos a confirmar</h2><button class="link-btn" type="button" data-open="fixas">Gerenciar</button></div>
+        <div id="prev-list"></div>
+      </section>
+
+      <section class="card" id="sec-cards">
+        <div class="card-head"><h2>Cartões de crédito</h2><button class="link-btn" type="button" data-open="cards">Gerenciar</button></div>
+        <div id="cards-sum"></div>
       </section>
 
       <section class="card">
-        <h2>Despesas por categoria</h2>
-        <div id="chart"></div>
+        <div class="card-head"><h2>Últimos lançamentos</h2><button class="link-btn" type="button" data-tab="lanc">Ver todos</button></div>
+        <div id="recent"></div>
       </section>
+      </div>
 
-      <section class="card">
-        <h2>Lançamentos</h2>
-        <div id="list"></div>
-      </section>
+      <!-- ===== Aba Lançamentos ===== -->
+      <div class="view" data-view="lanc" hidden>
+        <div class="chips" role="tablist" aria-label="Filtro">
+          <button class="chip active" type="button" data-filter="todos">Todos</button>
+          <button class="chip" type="button" data-filter="receitas">Receitas</button>
+          <button class="chip" type="button" data-filter="despesas">Despesas</button>
+          <button class="chip" type="button" data-filter="cartao">Cartão</button>
+        </div>
+        <section class="card">
+          <div id="list-head" class="list-head"></div>
+          <div id="list"></div>
+        </section>
+      </div>
+
+      <!-- ===== Aba Gráficos ===== -->
+      <div class="view" data-view="graf" hidden>
+        <section class="card">
+          <h2>Receitas e despesas nos últimos 6 meses</h2>
+          <div id="chart-evo"></div>
+        </section>
+        <section class="card">
+          <h2>Despesas por categoria</h2>
+          <div id="chart"></div>
+        </section>
+        <section class="card">
+          <h2>Receitas por categoria</h2>
+          <div id="chart-rec"></div>
+        </section>
+      </div>
     </main>
 
     <button id="btn-add" class="fab" type="button" aria-label="Novo lançamento">+</button>
+
+    <nav class="tabbar" aria-label="Seções">
+      <div class="tabbar-in">
+        <button class="tab active" type="button" data-tab="inicio">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>
+          <span>Início</span>
+        </button>
+        <button class="tab" type="button" data-tab="lanc">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/></svg>
+          <span>Lançamentos</span>
+        </button>
+        <button class="tab" type="button" data-tab="graf">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+          <span>Gráficos</span>
+        </button>
+      </div>
+    </nav>
   </div>
 
   <!-- Lançamento -->
   <dialog id="dlg-tx">
-    <form id="form-tx" novalidate>
+    <form id="form-tx" class="dlg-body" novalidate>
       <h2 id="tx-title">Novo lançamento</h2>
       <div class="seg" role="radiogroup" aria-label="Tipo">
         <input type="radio" name="tipo" id="tipo-desp" value="Despesa" checked><label for="tipo-desp">Despesa</label>
         <input type="radio" name="tipo" id="tipo-rec" value="Receita"><label for="tipo-rec">Receita</label>
       </div>
-      <label class="field"><span>Valor (R$)</span><input id="f-valor" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
+      <label class="field"><span id="lbl-valor">Valor (R$)</span><input id="f-valor" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
       <label class="field"><span>Descrição</span><input id="f-desc" maxlength="100" placeholder="Ex.: Mercado" autocomplete="off"></label>
       <label class="field"><span>Categoria</span><select id="f-cat"></select></label>
-      <label class="field"><span>Data</span><input id="f-data" type="date"></label>
-      <p id="tx-error" class="error" hidden></p>
+      <div class="row2">
+        <label class="field" id="row-pag"><span>Pagamento</span><select id="f-pag"></select></label>
+        <label class="field" id="row-parc" hidden><span>Parcelas</span><select id="f-parc"></select></label>
+      </div>
+      <div class="row2">
+        <label class="field"><span>Data</span><input id="f-data" type="date"></label>
+        <label class="field"><span>Hora</span><input id="f-hora" type="time"></label>
+      </div>
+      <p id="tx-hint" class="hint" hidden></p>
+      <label class="check" id="row-fixa"><input type="checkbox" id="f-fixa"><span>Repetir todo mês (lançamento fixo)</span></label>
+      <label class="check sub-check" id="row-var" hidden><input type="checkbox" id="f-var"><span>Valor variável: confirmar todo mês</span></label>
+      <p class="error dlg-error" hidden></p>
       <div class="actions">
         <button type="button" id="btn-del" class="btn btn-danger" hidden>Excluir</button>
         <span class="spacer"></span>
         <button type="button" class="btn btn-ghost" data-close>Cancelar</button>
-        <button type="submit" id="btn-save" class="btn btn-primary">Salvar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Fatura -->
+  <dialog id="dlg-fatura">
+    <div class="dlg-body">
+      <div>
+        <h2 id="fat-title"></h2>
+        <p id="fat-sub" class="muted small-text"></p>
+      </div>
+      <div class="fat-total"><span class="muted">Total da fatura</span><strong id="fat-total"></strong></div>
+      <div id="fat-list" class="dlg-scroll"></div>
+      <div class="actions"><span class="spacer"></span><button class="btn btn-ghost" type="button" data-close>Fechar</button></div>
+    </div>
+  </dialog>
+
+  <!-- Lista de cartões -->
+  <dialog id="dlg-cards">
+    <div class="dlg-body">
+      <h2>Cartões de crédito</h2>
+      <div id="cards-list" class="dlg-scroll"></div>
+      <div class="actions">
+        <button class="btn btn-soft" type="button" data-open="card-new">+ Novo cartão</button>
+        <span class="spacer"></span>
+        <button class="btn btn-ghost" type="button" data-close>Fechar</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Cartão -->
+  <dialog id="dlg-card">
+    <form id="form-card" class="dlg-body" novalidate>
+      <h2 id="card-title">Novo cartão</h2>
+      <label class="field"><span>Nome do cartão</span><input id="k-nome" maxlength="40" placeholder="Ex.: Cartão principal" autocomplete="off"></label>
+      <div class="row2">
+        <label class="field"><span>Melhor dia de compra</span><input id="k-fech" type="number" inputmode="numeric" min="1" max="31" placeholder="Ex.: 5"></label>
+        <label class="field"><span>Dia de vencimento</span><input id="k-venc" type="number" inputmode="numeric" min="1" max="31" placeholder="Ex.: 10"></label>
+      </div>
+      <p id="card-hint" class="hint" hidden></p>
+      <div class="row2 row2-color">
+        <label class="field"><span>Limite (opcional)</span><input id="k-lim" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
+        <label class="field"><span>Cor</span><input id="k-cor" type="color" value="#7c3aed"></label>
+      </div>
+      <p class="error dlg-error" hidden></p>
+      <div class="actions">
+        <button type="button" id="btn-card-del" class="btn btn-danger" hidden>Excluir</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-ghost" data-close>Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Lista de fixos -->
+  <dialog id="dlg-fixas">
+    <div class="dlg-body">
+      <h2>Lançamentos fixos</h2>
+      <p class="muted small-text">Fixos de valor igual são lançados sozinhos no dia. Os de valor variável aparecem em "Fixos a confirmar" para você informar o valor do mês.</p>
+      <div id="fixas-list" class="dlg-scroll"></div>
+      <div class="actions">
+        <button class="btn btn-soft" type="button" data-open="fixa-new">+ Novo fixo</button>
+        <span class="spacer"></span>
+        <button class="btn btn-ghost" type="button" data-close>Fechar</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Fixo -->
+  <dialog id="dlg-fixa">
+    <form id="form-fixa" class="dlg-body" novalidate>
+      <h2 id="fixa-title">Novo lançamento fixo</h2>
+      <div class="seg" role="radiogroup" aria-label="Tipo">
+        <input type="radio" name="fx-tipo" id="fx-desp" value="Despesa" checked><label for="fx-desp">Despesa</label>
+        <input type="radio" name="fx-tipo" id="fx-rec" value="Receita"><label for="fx-rec">Receita</label>
+      </div>
+      <label class="field"><span>Descrição</span><input id="x-desc" maxlength="100" placeholder="Ex.: Internet" autocomplete="off"></label>
+      <div class="row2">
+        <label class="field"><span>Valor (R$)</span><input id="x-valor" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
+        <label class="field"><span>Dia do mês</span><input id="x-dia" type="number" inputmode="numeric" min="1" max="31" placeholder="Ex.: 10"></label>
+      </div>
+      <label class="field"><span>Categoria</span><select id="x-cat"></select></label>
+      <label class="field" id="row-x-pag"><span>Pagamento</span><select id="x-pag"></select></label>
+      <label class="check"><input type="checkbox" id="x-var"><span>Valor variável (ex.: luz, água)</span></label>
+      <p id="x-var-hint" class="hint"></p>
+      <div class="row2">
+        <label class="field"><span>Começa em</span><input id="x-ini" type="month" placeholder="aaaa-mm"></label>
+        <label class="field"><span>Termina em (opcional)</span><input id="x-fim" type="month" placeholder="aaaa-mm"></label>
+      </div>
+      <p class="error dlg-error" hidden></p>
+      <div class="actions">
+        <button type="button" id="btn-fixa-del" class="btn btn-danger" hidden>Excluir</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-ghost" data-close>Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
       </div>
     </form>
   </dialog>
@@ -95,8 +259,10 @@
   <!-- Menu -->
   <dialog id="dlg-menu">
     <div class="menu">
+      <button class="menu-item" type="button" data-open="cards">Cartões de crédito</button>
+      <button class="menu-item" type="button" data-open="fixas">Lançamentos fixos</button>
+      <button class="menu-item" type="button" data-open="cats">Categorias</button>
       <a id="menu-sheet" class="menu-item" target="_blank" rel="noopener">Abrir planilha no Google</a>
-      <button id="menu-cats" class="menu-item" type="button">Categorias</button>
       <button id="menu-reload" class="menu-item" type="button">Atualizar dados</button>
       <button id="menu-logout" class="menu-item danger" type="button">Sair</button>
       <button class="menu-item muted" type="button" data-close>Fechar</button>
@@ -107,7 +273,7 @@
   <dialog id="dlg-cats">
     <div class="dlg-body">
       <h2>Categorias</h2>
-      <div id="cats-list"></div>
+      <div id="cats-list" class="dlg-scroll"></div>
       <form id="form-cat" class="cat-form">
         <input id="c-nome" class="cat-name" placeholder="Nova categoria" maxlength="40" autocomplete="off">
         <select id="c-tipo"><option>Despesa</option><option>Receita</option></select>
@@ -115,6 +281,18 @@
         <button class="btn btn-primary cat-add" type="submit">Adicionar categoria</button>
       </form>
       <div class="actions"><span class="spacer"></span><button class="btn btn-ghost" type="button" data-close>Fechar</button></div>
+    </div>
+  </dialog>
+
+  <!-- Confirmação -->
+  <dialog id="dlg-confirm">
+    <div class="dlg-body">
+      <p id="confirm-msg" class="confirm-msg"></p>
+      <div class="actions">
+        <span class="spacer"></span>
+        <button id="confirm-cancel" class="btn btn-ghost" type="button">Cancelar</button>
+        <button id="confirm-ok" class="btn btn-danger-solid" type="button">Excluir</button>
+      </div>
     </div>
   </dialog>
 
