@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Minhas Finanças</title>
+  <meta name="description" content="Controle de receitas e despesas com os dados no seu Google Drive.">
+  <meta name="theme-color" content="#0f766e">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-title" content="Finanças">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Carregando -->
+  <main id="screen-loading" class="screen center">
+    <div class="spinner" aria-hidden="true"></div>
+    <p id="loading-msg" class="muted">Carregando…</p>
+  </main>
+
+  <!-- Login -->
+  <main id="screen-login" class="screen center" hidden>
+    <img src="icons/icon-192.png" alt="" class="login-logo" width="88" height="88">
+    <h1>Minhas Finanças</h1>
+    <p class="muted">Controle de receitas e despesas. Seus dados ficam numa planilha no <strong>seu</strong> Google Drive.</p>
+    <button id="btn-login" class="btn btn-google" type="button">
+      <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      Entrar com Google
+    </button>
+    <p id="login-error" class="error" hidden></p>
+    <p class="tiny muted">O site só tem acesso aos arquivos que ele mesmo cria no seu Drive.</p>
+  </main>
+
+  <!-- App -->
+  <div id="screen-app" hidden>
+    <div id="demo-banner" class="demo-banner" hidden>Modo demonstração — dados fictícios, nada é salvo.</div>
+    <header class="topbar">
+      <h1>Minhas Finanças</h1>
+      <button id="btn-menu" class="icon-btn" type="button" aria-label="Menu">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+      </button>
+    </header>
+
+    <main class="content">
+      <nav class="month-nav">
+        <button id="btn-prev" class="icon-btn" type="button" aria-label="Mês anterior">‹</button>
+        <button id="month-label" class="month-label" type="button" title="Voltar para o mês atual"></button>
+        <button id="btn-next" class="icon-btn" type="button" aria-label="Próximo mês">›</button>
+      </nav>
+
+      <section class="summary">
+        <div class="stat"><span class="stat-label">Receitas</span><span id="sum-in" class="stat-value pos"></span></div>
+        <div class="stat"><span class="stat-label">Despesas</span><span id="sum-out" class="stat-value neg"></span></div>
+        <div class="stat stat-main"><span class="stat-label">Saldo do mês</span><span id="sum-bal" class="stat-value"></span></div>
+      </section>
+
+      <section class="card">
+        <h2>Despesas por categoria</h2>
+        <div id="chart"></div>
+      </section>
+
+      <section class="card">
+        <h2>Lançamentos</h2>
+        <div id="list"></div>
+      </section>
+    </main>
+
+    <button id="btn-add" class="fab" type="button" aria-label="Novo lançamento">+</button>
+  </div>
+
+  <!-- Lançamento -->
+  <dialog id="dlg-tx">
+    <form id="form-tx" novalidate>
+      <h2 id="tx-title">Novo lançamento</h2>
+      <div class="seg" role="radiogroup" aria-label="Tipo">
+        <input type="radio" name="tipo" id="tipo-desp" value="Despesa" checked><label for="tipo-desp">Despesa</label>
+        <input type="radio" name="tipo" id="tipo-rec" value="Receita"><label for="tipo-rec">Receita</label>
+      </div>
+      <label class="field"><span>Valor (R$)</span><input id="f-valor" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
+      <label class="field"><span>Descrição</span><input id="f-desc" maxlength="100" placeholder="Ex.: Mercado" autocomplete="off"></label>
+      <label class="field"><span>Categoria</span><select id="f-cat"></select></label>
+      <label class="field"><span>Data</span><input id="f-data" type="date"></label>
+      <p id="tx-error" class="error" hidden></p>
+      <div class="actions">
+        <button type="button" id="btn-del" class="btn btn-danger" hidden>Excluir</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-ghost" data-close>Cancelar</button>
+        <button type="submit" id="btn-save" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Menu -->
+  <dialog id="dlg-menu">
+    <div class="menu">
+      <a id="menu-sheet" class="menu-item" target="_blank" rel="noopener">Abrir planilha no Google</a>
+      <button id="menu-cats" class="menu-item" type="button">Categorias</button>
+      <button id="menu-reload" class="menu-item" type="button">Atualizar dados</button>
+      <button id="menu-logout" class="menu-item danger" type="button">Sair</button>
+      <button class="menu-item muted" type="button" data-close>Fechar</button>
+    </div>
+  </dialog>
+
+  <!-- Categorias -->
+  <dialog id="dlg-cats">
+    <div class="dlg-body">
+      <h2>Categorias</h2>
+      <div id="cats-list"></div>
+      <form id="form-cat" class="cat-form">
+        <input id="c-nome" class="cat-name" placeholder="Nova categoria" maxlength="40" autocomplete="off">
+        <select id="c-tipo"><option>Despesa</option><option>Receita</option></select>
+        <input id="c-cor" type="color" value="#0f766e" aria-label="Cor">
+        <button class="btn btn-primary cat-add" type="submit">Adicionar categoria</button>
+      </form>
+      <div class="actions"><span class="spacer"></span><button class="btn btn-ghost" type="button" data-close>Fechar</button></div>
+    </div>
+  </dialog>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
