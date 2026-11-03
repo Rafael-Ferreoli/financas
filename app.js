@@ -902,7 +902,6 @@
       sp.hidden = false;
     } else sp.hidden = true;
 
-    renderConta();
     renderOrcamento();
     renderPrev(prev.filter((f) => f.variavel));
     renderCardsSummary(items);
@@ -932,69 +931,6 @@
       else r.prevOut += f.valor;
     });
     return r;
-  }
-
-  // ----- Saldo da conta corrente -----
-  // Entra/sai da conta: lançamentos sem cartão (no dia) e faturas (no dia em que foi paga, ou no vencimento)
-  function saldoInicial() {
-    const v = state.config.SaldoInicial;
-    const d = state.config.SaldoInicialData;
-    if (!v || !d || !isISO(String(d.valor))) return null;
-    const em = state.config.SaldoInformadoEm;
-    return { valor: num(v.valor), data: String(d.valor), em: em ? String(em.valor) : '' };
-  }
-  // O saldo informado já inclui o que aconteceu até aquele momento do dia: no próprio dia,
-  // só entram lançamentos/pagamentos registrados DEPOIS de informar o saldo.
-  function fluxoConta(si, ate, comPrevistos) {
-    const de = si.data;
-    const depois = (data, criado) => data > de || (data === de && !!criado && !!si.em && criado > si.em);
-    let s2 = 0;
-    state.tx.forEach((t) => {
-      if (t.cartao || t.data > ate || !depois(t.data, t.criadoEm)) return;
-      s2 += t.tipo === 'Receita' ? t.valor : -t.valor;
-    });
-    // Faturas: total de cada cartão/mês, na data do pagamento
-    const fat = new Map();
-    state.tx.forEach((t) => {
-      if (!t.cartao || !t.fatura) return;
-      const k = pagaKey(t.cartao, t.fatura);
-      fat.set(k, (fat.get(k) || 0) + (t.tipo === 'Receita' ? -t.valor : t.valor));
-    });
-    fat.forEach((tot, k) => {
-      const [cid, ym] = k.split('|');
-      const card = cardById(cid);
-      const pg = state.pagas.get(k);
-      const quando = pg && pg.pagaEm ? pg.pagaEm : (card ? faturaDatas(card, ym).vence : dateInMonth(ym, 10));
-      if (quando <= ate && depois(quando, pg ? pg.marcadaEm : '')) s2 -= tot;
-    });
-    if (comPrevistos) {
-      for (let ym = de.slice(0, 7); ym <= ate.slice(0, 7); ym = addMonths(ym, 1)) {
-        monthData(ym).prev.forEach((f) => {
-          const d = dateInMonth(ym, f.dia);
-          if (d <= de || d > ate) return;
-          s2 += f.tipo === 'Receita' ? f.valor : -f.valor;
-        });
-      }
-    }
-    return s2;
-  }
-  function renderConta() {
-    const el = $('#conta-box');
-    const si = saldoInicial();
-    if (!si) {
-      el.innerHTML = `<div class="empty-cta"><p>Informe o saldo da sua conta corrente para ver quanto você tem hoje e quanto vai ter no fim do mês.</p>
-        <button class="btn btn-soft" type="button" data-open="saldo">Informar saldo da conta</button></div>`;
-      return;
-    }
-    const hoje = todayISO();
-    const fim = dateInMonth(state.ym, 31);
-    const atual = si.valor + (hoje >= si.data ? fluxoConta(si, hoje, false) : 0);
-    const fimMes = fim >= si.data ? si.valor + fluxoConta(si, fim, true) : null;
-    el.innerHTML = `
-      <button class="conta-btn" type="button" data-open="saldo" title="Ajustar saldo da conta">
-        <span class="conta-col"><span class="stat-label">Saldo hoje</span><strong class="${atual < 0 ? 'neg' : ''}">${fmt(atual)}</strong></span>
-        ${fimMes !== null ? `<span class="conta-col"><span class="stat-label">Previsto em ${ddmm(fim)}</span><strong class="${fimMes < 0 ? 'neg' : ''}">${fmt(fimMes)}</strong></span>` : ''}
-      </button>`;
   }
 
   // ----- Orçamento por categoria -----
@@ -1854,40 +1790,6 @@
     }, pg ? 'Pagamento desmarcado' : 'Fatura marcada como paga');
   }
 
-  // ================= Saldo da conta =================
-  async function setConfig(chave, valor) {
-    const atual = state.config[chave];
-    const rec = { ...((atual && atual._r) || {}), Chave: chave, Valor: valor };
-    if (atual) await DB.update('Config', rec);
-    else await DB.add('Config', [rec]);
-    state.config[chave] = { valor, _r: rec };
-  }
-  function openSaldo() {
-    if (!freshEnough()) return;
-    // Abre com a data de hoje e o saldo que o site calcula agora: é só corrigir para o valor do banco
-    const si = saldoInicial();
-    const hoje = todayISO();
-    const atual = si && hoje >= si.data ? round2(si.valor + fluxoConta(si, hoje, false)) : null;
-    $('#s-valor').value = atual !== null ? atual.toFixed(2).replace('.', ',') : '';
-    $('#s-data').value = hoje;
-    setError($('#dlg-saldo .dlg-error'), '');
-    $('#dlg-saldo').showModal();
-    setTimeout(() => $('#s-valor').focus(), 50);
-  }
-  async function saveSaldo(e) {
-    e.preventDefault();
-    const dlg = $('#dlg-saldo');
-    const v = round2(parseValor($('#s-valor').value.replace(/^\s*−/, '-')));
-    const d = $('#s-data').value;
-    if (!Number.isFinite(v)) return setError(dlg.querySelector('.dlg-error'), 'Informe o saldo (pode ser negativo, ex.: -150,00).');
-    if (!isISO(d)) return setError(dlg.querySelector('.dlg-error'), 'Informe a data do saldo.');
-    await run(async () => {
-      await setConfig('SaldoInicial', v);
-      await setConfig('SaldoInicialData', d);
-      await setConfig('SaldoInformadoEm', new Date().toISOString());
-    }, 'Saldo da conta salvo', dlg);
-  }
-
   // ================= Cartões =================
   function renderCardsList() {
     const el = $('#cards-list');
@@ -2329,7 +2231,7 @@
     else if (name === 'cats') openCats();
     else if (name === 'help') openHelp();
     else if (name === 'seg') openSeg();
-    else if (name === 'saldo') openSaldo();
+
   }
 
   function bindUI() {
@@ -2459,7 +2361,6 @@
     $('#btn-help').addEventListener('click', openHelp);
     $('#seg-now').addEventListener('click', backupAgora);
     $('#fat-pay').addEventListener('click', toggleFaturaPaga);
-    $('#form-saldo').addEventListener('submit', saveSaldo);
     let qTimer;
     $('#q').addEventListener('input', () => {
       clearTimeout(qTimer);
@@ -2587,7 +2488,7 @@
       Categorias: DEFAULT_CATS.map((c) => ({ ...c, Orcamento: c.Nome === 'Alimentação' ? 700 : c.Nome === 'Lazer' ? 150 : '' })),
       Cartoes: [c1, c2].map(cardTo),
       Fixas: fx.map(fixaTo),
-      Config: [{ Chave: 'SaldoInicial', Valor: 2350 }, { Chave: 'SaldoInicialData', Valor: dateInMonth(addMonths(cur, -1), 1) }],
+      Config: [],
       FaturasPagas: [],
     };
   }

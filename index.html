@@ -13,8 +13,8 @@
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-title" content="Finanças">
-  <script src="boot.js?v=20261103c"></script>
-  <link rel="stylesheet" href="style.css?v=20261103c">
+  <script src="boot.js?v=20261103d"></script>
+  <link rel="stylesheet" href="style.css?v=20261103d">
 </head>
 <body>
 
@@ -63,10 +63,6 @@
 
       <!-- ===== Aba Início ===== -->
       <div class="view" data-view="inicio">
-      <section class="card conta-card">
-        <div class="card-head"><h2>Conta corrente</h2><button class="link-btn" type="button" data-open="saldo">Ajustar</button></div>
-        <div id="conta-box"></div>
-      </section>
       <section class="summary">
         <div class="stat"><span class="stat-label">Receitas</span><span id="sum-in" class="stat-value pos"></span><span id="sum-in-sub" class="stat-sub" hidden></span></div>
         <div class="stat"><span class="stat-label">Despesas</span><span id="sum-out" class="stat-value neg"></span><span id="sum-out-sub" class="stat-sub" hidden></span></div>
@@ -418,7 +414,7 @@
           <p><strong>Parcelas sem cartão</strong>: em receitas e na conta corrente também dá para parcelar. Cada parcela cai num mês, no mesmo dia (ex.: alguém vai te pagar R$ 600 em 3x → 3 receitas de R$ 200, uma por mês). As parcelas futuras aparecem com a etiqueta <em>a receber</em> ou <em>a pagar</em>.</p>
           <p><strong>Compra para outra pessoa</strong>: marque <em>Alguém vai me devolver esse valor</em> e escreva o nome. O site lança a despesa e, junto, as receitas de reembolso com as mesmas parcelas. No cartão, cada reembolso cai no dia do vencimento da fatura. Elas ficam na categoria <em>Reembolsos</em>.</p>
           <p>Reembolsos <strong>não contam como receita</strong>: aparecem à parte, no card de Despesas ("reembolsos −R$… · líquido R$…"), e o saldo do mês continua certo. Ao excluir a compra, o site oferece excluir também o reembolso ligado a ela.</p>
-          <p><strong>Fatura paga</strong>: abra a fatura (toque no cartão no Início) e use <em>Marcar como paga hoje</em>. O saldo da conta desconta a fatura nesse dia; sem marcar, ela é descontada no vencimento.</p>
+          <p><strong>Fatura paga</strong>: abra a fatura (toque no cartão no Início) e use <em>Marcar como paga hoje</em>. A fatura passa a aparecer como <em>Paga</em>, e o limite usado do cartão é liberado.</p>
           <p>Na lista, compras no cartão aparecem com uma <strong>bolinha com o desenho de um cartão</strong> no canto do ícone, na cor do cartão usado.</p>
           <p>No <strong>Início</strong>, cada cartão mostra a fatura do mês. Toque nele para ver todas as compras daquela fatura. As compras no cartão entram no saldo do mês em que a fatura vence.</p>
         </details>
@@ -469,14 +465,6 @@
           <p>Evite renomear as abas ou os títulos das colunas da planilha.</p>
         </details>
         <details>
-          <summary>Saldo da conta corrente</summary>
-          <ol>
-            <li>No Início, em <strong>Conta corrente</strong>, toque em <em>Informar saldo da conta</em> e digite o saldo que aparece no banco e a data.</li>
-            <li>O site mostra o <strong>saldo hoje</strong> e o <strong>previsto para o fim do mês</strong> (com fixos e faturas que ainda vão vencer).</li>
-            <li>Ficou diferente do banco? Toque em <em>Ajustar</em> e informe o saldo de novo.</li>
-          </ol>
-        </details>
-        <details>
           <summary>Orçamento por categoria</summary>
           <ol>
             <li>Menu <strong>⋯</strong> → <strong>Categorias</strong> → toque na categoria → <em>Orçamento por mês</em> (ex.: Alimentação R$ 800).</li>
@@ -521,21 +509,6 @@
     </div>
   </dialog>
 
-  <!-- Saldo da conta -->
-  <dialog id="dlg-saldo">
-    <form id="form-saldo" class="dlg-body" novalidate>
-      <h2>Saldo da conta corrente</h2>
-      <p class="small-text muted">Olhe o saldo no app do banco e informe aqui. A partir dessa data, o site soma o que entra e sai da conta: lançamentos sem cartão e o pagamento das faturas.</p>
-      <div class="row2">
-        <label class="field"><span>Saldo (R$)</span><input id="s-valor" inputmode="decimal" placeholder="Ex.: 1.250,00" autocomplete="off"></label>
-        <label class="field"><span>Saldo em</span><input id="s-data" type="date"></label>
-      </div>
-      <p class="hint">Use o saldo que o banco mostra agora: o que você já lançou até este momento não é descontado de novo. Se ficar diferente do banco, é só informar o saldo de novo.</p>
-      <p class="error dlg-error" hidden></p>
-      <div class="actions"><span class="spacer"></span><button type="button" class="btn btn-ghost" data-close>Cancelar</button><button type="submit" class="btn btn-primary">Salvar</button></div>
-    </form>
-  </dialog>
-
   <!-- Escolha com várias opções -->
   <dialog id="dlg-choice">
     <div class="dlg-body">
@@ -559,8 +532,8 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="config.js?v=20261103c"></script>
-  <script src="icons.js?v=20261103c"></script>
-  <script src="app.js?v=20261103c"></script>
+  <script src="config.js?v=20261103d"></script>
+  <script src="icons.js?v=20261103d"></script>
+  <script src="app.js?v=20261103d"></script>
 </body>
 </html>
