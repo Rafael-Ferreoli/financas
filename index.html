@@ -14,7 +14,7 @@
     // Aplica o tema salvo antes de desenhar a página (evita piscar)
     try { var t = localStorage.getItem('mf_theme'); if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}
   </script>
-  <link rel="stylesheet" href="style.css?v=20261028k">
+  <link rel="stylesheet" href="style.css?v=20261103a">
 </head>
 <body>
 
@@ -163,7 +163,7 @@
       <label class="field"><span>Categoria</span><select id="f-cat"></select></label>
       <div class="row2">
         <label class="field" id="row-pag"><span>Pagamento</span><select id="f-pag"></select></label>
-        <label class="field" id="row-parc" hidden><span>Parcelas</span><select id="f-parc"></select></label>
+        <label class="field" id="row-parc" hidden><span id="lbl-parc">Parcelas</span><select id="f-parc"></select></label>
       </div>
       <div class="row2">
         <label class="field"><span>Data</span><input id="f-data" type="date"></label>
@@ -172,6 +172,11 @@
       <p id="tx-hint" class="hint" hidden></p>
       <label class="check" id="row-fixa"><input type="checkbox" id="f-fixa"><span>Repetir todo mês (lançamento fixo)</span></label>
       <label class="check sub-check" id="row-var" hidden><input type="checkbox" id="f-var"><span>Valor variável: confirmar todo mês</span></label>
+      <label class="check" id="row-reemb" hidden><input type="checkbox" id="f-reemb"><span>Alguém vai me devolver esse valor</span></label>
+      <div class="field sub-check" id="row-reemb-quem" hidden>
+        <label for="f-reemb-quem">Quem vai devolver</label>
+        <input id="f-reemb-quem" maxlength="40" placeholder="Ex.: Ana" autocomplete="off">
+      </div>
       <p class="error dlg-error" hidden></p>
       <div class="actions">
         <button type="button" id="btn-del" class="btn btn-danger" hidden>Excluir</button>
@@ -391,12 +396,14 @@
           <p>O limite é opcional. Se preencher, o site mostra quanto ainda está disponível.</p>
         </details>
         <details>
-          <summary>Compras no cartão e parcelas</summary>
+          <summary>Parcelas, cartão e reembolsos</summary>
           <ol>
             <li>No lançamento, escolha o cartão em <strong>Pagamento</strong>.</li>
             <li>Aparece o campo <strong>Parcelas</strong>. Digite o valor <strong>total</strong> da compra e escolha em quantas vezes.</li>
             <li>O quadro verde mostra em qual fatura a compra cai e o valor de cada parcela.</li>
           </ol>
+          <p><strong>Parcelas sem cartão</strong>: em receitas e na conta corrente também dá para parcelar. Cada parcela cai num mês, no mesmo dia (ex.: alguém vai te pagar R$ 600 em 3x → 3 receitas de R$ 200, uma por mês). As parcelas futuras aparecem com a etiqueta <em>a receber</em> ou <em>a pagar</em>.</p>
+          <p><strong>Compra para outra pessoa</strong>: marque <em>Alguém vai me devolver esse valor</em> e escreva o nome. O site lança a despesa e, junto, as receitas de reembolso com as mesmas parcelas. No cartão, cada reembolso cai no dia do vencimento da fatura. Elas ficam na categoria <em>Reembolsos</em>.</p>
           <p>Na lista, compras no cartão aparecem com uma <strong>bolinha com o desenho de um cartão</strong> no canto do ícone, na cor do cartão usado.</p>
           <p>No <strong>Início</strong>, cada cartão mostra a fatura do mês. Toque nele para ver todas as compras daquela fatura. As compras no cartão entram no saldo do mês em que a fatura vence.</p>
         </details>
@@ -506,8 +513,8 @@
       msg.textContent = 'Erro ao abrir o site: ' + what + '. Recarregue a página (Ctrl+F5 no PC).';
     }, true);
   </script>
-  <script src="config.js?v=20261028k"></script>
-  <script src="icons.js?v=20261028k"></script>
-  <script src="app.js?v=20261028k"></script>
+  <script src="config.js?v=20261103a"></script>
+  <script src="icons.js?v=20261103a"></script>
+  <script src="app.js?v=20261103a"></script>
 </body>
 </html>

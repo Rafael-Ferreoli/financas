@@ -470,3 +470,5 @@ button.bar-row:hover .bar-name { color: var(--primary); }
 .seg-info .warn { color: var(--neg); }
 .seg-btns { display: flex; flex-direction: column; gap: 8px; }
 .seg-btns .btn { width: 100%; text-align: center; text-decoration: none; }
+
+.badge-sub { margin: 0 6px 0 0; }

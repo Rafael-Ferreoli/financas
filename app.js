@@ -64,6 +64,7 @@
     ['Outros', 'Despesa', '#8d99ae', 'tag'],
     ['Salário', 'Receita', '#2a9d8f', 'briefcase'],
     ['Rendimentos', 'Receita', '#43aa8b', 'trending-up'],
+    ['Reembolsos', 'Receita', '#4d908e', 'undo-2'],
     ['Outras receitas', 'Receita', '#90be6d', 'wallet'],
   ].map(([Nome, Tipo, Cor, Icone]) => ({ Nome, Tipo, Cor, Icone }));
 
@@ -997,7 +998,7 @@
     const out = [];
     state.tx.forEach((t) => {
       if (t.data.slice(0, 7) !== ym) return;
-      if (t.grupo) {
+      if (t.grupo && t.cartao) {
         if (seen.has(t.grupo)) return;
         seen.add(t.grupo);
         const g = state.tx.filter((x) => x.grupo === t.grupo).sort((a, b) => a.parcela - b.parcela);
@@ -1019,12 +1020,15 @@
       if (e.grupoN > 1) parts.push(`${cardName(e.cartao)} · ${e.grupoN}x de ${fmt(e.valor)}`);
       else parts.push(cardName(e.cartao) + (e.fatura ? ` · fatura ${monthShort(e.fatura)}` : ''));
     }
+    if (!e.cartao && e.parcelas > 1) parts.push(`parcela ${e.parcela}/${e.parcelas}`);
     if (e.hora) parts.push(e.hora);
-    const badge = e.fixa ? '<span class="badge">fixo</span>' : '';
+    let badge = e.fixa ? '<span class="badge">fixo</span>' : '';
+    // Parcelas futuras na conta: ainda vão acontecer
+    const futuro = !e.cartao && e.data > todayISO() ? `<span class="badge off badge-sub">${e.tipo === 'Receita' ? 'a receber' : 'a pagar'}</span>` : '';
     return `
       <button class="tx" type="button" data-tx="${esc(e.id)}">
         ${catIco(e.categoria, e.cartao, true)}
-        <span class="tx-main"><span class="tx-desc">${esc(e.descricao || e.categoria)}${badge}</span><span class="tx-sub">${esc(parts.join(' · '))}</span></span>
+        <span class="tx-main"><span class="tx-desc">${esc(e.descricao || e.categoria)}${badge}</span><span class="tx-sub">${futuro}${esc(parts.join(' · '))}</span></span>
         <span class="tx-val ${rec ? 'pos' : 'neg'}">${rec ? '+' : '−'} ${fmt(e.total)}</span>
       </button>`;
   }
@@ -1183,13 +1187,16 @@
     $('#f-desc').value = src ? src.descricao : '';
     fillCatSelect($('#f-cat'), tipo, src ? src.categoria : null);
     fillPagSelect($('#f-pag'), src ? src.cartao : '');
-    $('#f-parc').innerHTML = Array.from({ length: 24 }, (_, i) => `<option value="${i + 1}">${i + 1}x${i === 0 ? ' (à vista)' : ''}</option>`).join('');
+    $('#f-parc').innerHTML = Array.from({ length: 24 }, (_, i) => `<option value="${i + 1}">${i + 1}x${i === 0 ? ' (sem parcelar)' : ''}</option>`).join('');
     if (t) { $('#f-data').value = t.data; $('#f-hora').value = t.hora || ''; }
     else if (f) { $('#f-data').value = dateInMonth(state.ym, f.dia); $('#f-hora').value = nowHM(); }
     else { $('#f-data').value = defaultDate(); $('#f-hora').value = nowHM(); }
     $('#f-fixa').checked = false;
     $('#f-var').checked = false;
     $('#f-valor').placeholder = '0,00';
+    $('#f-reemb').checked = false;
+    $('#f-reemb-quem').value = '';
+    $('#f-parc').value = '1';
     $('#desc-sug').hidden = true;
     $('#btn-del').hidden = mode !== 'edit';
     setError($('#dlg-tx .dlg-error'), '');
@@ -1209,12 +1216,17 @@
     $('#row-pag').hidden = tipo !== 'Despesa';
     const cartao = tipo === 'Despesa' ? $('#f-pag').value : '';
     const card = cardById(cartao);
-    const podeParcelar = !!card && form.mode === 'new';
+    // Parcelas: no cartão, em receitas e na conta corrente (só ao criar)
+    const podeParcelar = form.mode === 'new';
     $('#row-parc').hidden = !podeParcelar;
+    $('#lbl-parc').textContent = card ? 'Parcelas' : 'Parcelas (1 por mês)';
     const n = podeParcelar ? Number($('#f-parc').value) : 1;
-    $('#lbl-valor').textContent = n > 1 ? 'Valor total da compra (R$)' : 'Valor (R$)';
+    $('#lbl-valor').textContent = n > 1 ? (tipo === 'Receita' ? 'Valor total a receber (R$)' : 'Valor total (R$)') : 'Valor (R$)';
     $('#row-fixa').hidden = form.mode !== 'new' || n > 1;
     $('#row-var').hidden = $('#row-fixa').hidden || !$('#f-fixa').checked;
+    // Reembolso: despesa feita para outra pessoa, que vai me devolver
+    $('#row-reemb').hidden = !(form.mode === 'new' && tipo === 'Despesa');
+    $('#row-reemb-quem').hidden = $('#row-reemb').hidden || !$('#f-reemb').checked;
 
     const hints = [];
     const data = $('#f-data').value;
@@ -1224,6 +1236,17 @@
       hints.push(`Entra na fatura de ${monthName(fat).toLowerCase()}, que vence em ${ddmm(faturaDatas(card, fat).vence)}.`);
       const v = parseValor($('#f-valor').value);
       if (n > 1 && v > 0) hints.push(`${n}x de ${fmt(Math.floor((v / n) * 100) / 100)}, a última em ${monthName(addMonths(fat, n - 1)).toLowerCase()}.`);
+    }
+    const v0 = parseValor($('#f-valor').value);
+    if (!card && n > 1 && isISO(data) && v0 > 0) {
+      const dia = Number(data.slice(8, 10));
+      hints.push(`${n}x de ${fmt(Math.floor((v0 / n) * 100) / 100)}, todo dia ${dia}, de ${monthName(data.slice(0, 7)).toLowerCase()} até ${monthName(addMonths(data.slice(0, 7), n - 1)).toLowerCase()}.`);
+    }
+    if (!$('#row-reemb-quem').hidden && v0 > 0) {
+      const quem = $('#f-reemb-quem').value.trim() || 'a pessoa';
+      hints.push(n > 1
+        ? `Também serão lançadas ${n} receitas de ${fmt(Math.floor((v0 / n) * 100) / 100)} (reembolso de ${quem})${card ? ', cada uma no vencimento da fatura' : ''}.`
+        : `Também será lançada uma receita de ${fmt(v0)} (reembolso de ${quem})${card ? ' no vencimento da fatura' : ''}.`);
     }
     if (form.mode === 'edit' && form.tx.parcelas > 1) hints.push(`Parcela ${form.tx.parcela} de ${form.tx.parcelas}. A alteração vale só para esta parcela.`);
     if (form.mode === 'confirm') hints.push(`Fixo de ${monthName(state.ym).toLowerCase()}. Ajuste o valor se veio diferente.`);
@@ -1281,15 +1304,17 @@
     };
     const novos = [];
     let novaFixa = null;
-    const n = card && form.mode === 'new' ? Number($('#f-parc').value) : 1;
+    const n = form.mode === 'new' ? Number($('#f-parc').value) : 1;
+    const cada = Math.floor((valor / n) * 100) / 100;
+    const valorParcela = (i) => (i === n - 1 ? round2(valor - cada * (n - 1)) : cada);
     if (n > 1) {
       const grupo = uid();
-      const cada = Math.floor((valor / n) * 100) / 100;
       for (let i = 0; i < n; i++) {
         novos.push({
-          ...base, id: uid(), grupo, parcela: i + 1, parcelas: n,
-          valor: i === n - 1 ? round2(valor - cada * (n - 1)) : cada,
-          fatura: addMonths(base.fatura, i),
+          ...base, id: uid(), grupo, parcela: i + 1, parcelas: n, valor: valorParcela(i),
+          // cartão: mesma data da compra, faturas seguidas; conta/receita: uma por mês
+          data: card ? data : dateInMonth(addMonths(data.slice(0, 7), i), Number(data.slice(8, 10))),
+          fatura: card ? addMonths(base.fatura, i) : '',
         });
       }
     } else {
@@ -1304,8 +1329,29 @@
       }
       novos.push(t);
     }
-    const msg = n > 1 ? `Compra lançada em ${n}x` : form.mode === 'confirm' ? 'Fixo confirmado' : novaFixa ? 'Lançamento fixo criado' : 'Lançamento salvo';
+    // Reembolso: receitas espelhando as parcelas da despesa
+    const reemb = [];
+    let novaCat = null;
+    if (form.mode === 'new' && tipo === 'Despesa' && $('#f-reemb').checked) {
+      const quem = $('#f-reemb-quem').value.trim();
+      if (!quem) return setError(errEl, 'Informe quem vai devolver o valor.');
+      if (!state.cats.some((c) => c.nome === 'Reembolsos')) novaCat = { nome: 'Reembolsos', tipo: 'Receita', cor: '#4d908e', icone: 'undo-2' };
+      const g2 = n > 1 ? uid() : '';
+      novos.forEach((d, i) => {
+        const quando = card && d.fatura ? faturaDatas(card, d.fatura).vence : d.data;
+        reemb.push({
+          ...base, id: uid(), tipo: 'Receita', categoria: 'Reembolsos', descricao: `Reembolso ${quem}`,
+          cartao: '', fatura: '', fixa: '', data: quando, hora: '', valor: d.valor,
+          grupo: g2, parcela: n > 1 ? i + 1 : 0, parcelas: n > 1 ? n : 0,
+        });
+      });
+    }
+    const msg = n > 1
+      ? `${tipo === 'Receita' ? 'Receita' : 'Lançamento'} em ${n}x${reemb.length ? ' + reembolso' : ''}`
+      : form.mode === 'confirm' ? 'Fixo confirmado' : novaFixa ? 'Lançamento fixo criado' : reemb.length ? 'Lançamento e reembolso salvos' : 'Lançamento salvo';
+    novos.push(...reemb);
     await run(async () => {
+      if (novaCat) { await DB.add('Categorias', [catTo(novaCat)]); state.cats.push(novaCat); }
       if (novaFixa) { await DB.add('Fixas', [fixaTo(novaFixa)]); state.fixas.push(novaFixa); }
       await DB.add('Lancamentos', novos.map(txTo));
       state.tx.push(...novos);
@@ -1317,7 +1363,7 @@
     if (!t) return;
     const grupo = t.grupo ? state.tx.filter((x) => x.grupo === t.grupo) : [t];
     const msg = grupo.length > 1
-      ? `Esta compra foi parcelada em ${t.parcelas}x. Todas as ${grupo.length} parcelas serão excluídas.`
+      ? `Este lançamento foi parcelado em ${t.parcelas}x. Todas as ${grupo.length} parcelas serão excluídas.`
       : 'Excluir este lançamento?';
     if (!(await askConfirm(msg))) return;
     const ids = new Set(grupo.map((x) => x.id));
@@ -1501,7 +1547,7 @@
     const stats = [['Valor total', fmt(total)]];
     if (parcelas.length > 1) {
       stats.push([`${parcelas.length} parcelas de`, fmt(parcelas[0].valor)]);
-      stats.push(['Falta pagar', fmt(round2(total - pagas.reduce((s2, x) => s2 + x.valor, 0)))]);
+      stats.push([t.tipo === 'Receita' ? 'Falta receber' : 'Falta pagar', fmt(round2(total - pagas.reduce((s2, x) => s2 + x.valor, 0)))]);
     } else {
       stats.push(['Categoria', cat]);
       stats.push([t.cartao ? 'Fatura' : 'Mês', t.cartao && t.fatura ? monthShort(t.fatura) : monthShort(t.data.slice(0, 7))]);
@@ -1513,11 +1559,12 @@
       const v = venc(p);
       const paga = v < hoje;
       const titulo = parcelas.length > 1 ? `Parcela ${p.parcela} de ${p.parcelas}` : (t.cartao ? 'Compra no cartão' : 'Lançamento');
+      const rec = t.tipo === 'Receita';
       const sub = t.cartao && p.fatura ? `Fatura de ${monthShort(p.fatura)} · vence ${ddmm(v)}/${v.slice(2, 4)}` : `${ddmm(p.data)}/${p.data.slice(2, 4)}`;
       return `
         <div class="tx static">
           <span class="tx-main"><span class="tx-desc">${esc(titulo)}</span><span class="tx-sub">${esc(sub)}</span></span>
-          <span class="tx-right"><span class="tx-val">${fmt(p.valor)}</span><small class="${paga ? 'st-ok' : 'st-wait'}">${paga ? 'paga' : 'a vencer'}</small></span>
+          <span class="tx-right"><span class="tx-val">${fmt(p.valor)}</span><small class="${paga ? 'st-ok' : 'st-wait'}">${paga ? (rec ? 'recebida' : 'paga') : (rec ? 'a receber' : 'a vencer')}</small></span>
         </div>`;
     }).join('');
     $('#hist-list').innerHTML = linhas + `
@@ -2035,6 +2082,9 @@
     ['#f-pag', '#f-parc', '#f-data', '#f-valor'].forEach((s) => $(s).addEventListener('input', updateTxForm));
     $('#f-pag').addEventListener('change', updateTxForm);
     $('#f-fixa').addEventListener('change', updateTxForm);
+    $('#f-reemb').addEventListener('change', () => { updateTxForm(); if ($('#f-reemb').checked) $('#f-reemb-quem').focus(); });
+    $('#f-reemb-quem').addEventListener('input', updateTxForm);
+    $('#f-parc').addEventListener('change', updateTxForm);
     $('#f-desc').addEventListener('input', renderSug);
     $('#f-desc').addEventListener('focus', renderSug);
     $('#f-desc').addEventListener('blur', () => setTimeout(() => { $('#desc-sug').hidden = true; }, 200));
