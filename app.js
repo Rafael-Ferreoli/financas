@@ -40,13 +40,16 @@
   const SCHEMA = {
     Lancamentos: {
       key: 'ID',
-      cols: ['ID', 'Data', 'Hora', 'Tipo', 'Descricao', 'Categoria', 'Valor', 'Cartao', 'Fatura', 'Parcela', 'Parcelas', 'Grupo', 'Fixa', 'CriadoEm'],
+      cols: ['ID', 'Data', 'Hora', 'Tipo', 'Descricao', 'Categoria', 'Valor', 'Cartao', 'Fatura', 'Parcela', 'Parcelas', 'Grupo', 'Fixa', 'CriadoEm', 'Vinculo'],
       date: ['Data'],
       money: ['Valor'],
     },
-    Categorias: { key: 'Nome', cols: ['Nome', 'Tipo', 'Cor', 'Icone'] },
+    Categorias: { key: 'Nome', cols: ['Nome', 'Tipo', 'Cor', 'Icone', 'Orcamento'], money: ['Orcamento'] },
     Cartoes: { key: 'ID', cols: ['ID', 'Nome', 'Fechamento', 'Vencimento', 'Limite', 'Cor'], money: ['Limite'] },
     Fixas: { key: 'ID', cols: ['ID', 'Tipo', 'Descricao', 'Categoria', 'Valor', 'Dia', 'Cartao', 'Inicio', 'Fim', 'Variavel', 'GeradoAte'], money: ['Valor'] },
+    // Configurações (saldo inicial da conta etc.) e faturas marcadas como pagas
+    Config: { key: 'Chave', cols: ['Chave', 'Valor'] },
+    FaturasPagas: { key: 'ID', cols: ['ID', 'Cartao', 'Fatura', 'PagaEm', 'Valor', 'MarcadaEm'], date: ['PagaEm'], money: ['Valor'] },
   };
   const TABLES = Object.keys(SCHEMA);
 
@@ -629,6 +632,7 @@
       grupo: String(r.Grupo ?? ''),
       fixa: String(r.Fixa ?? ''),
       criadoEm: String(r.CriadoEm ?? ''),
+      vinculo: String(r.Vinculo ?? ''),
       _r: r,
     };
   }
@@ -638,7 +642,7 @@
       ID: t.id, Data: t.data, Hora: t.hora || '', Tipo: t.tipo, Descricao: t.descricao, Categoria: t.categoria,
       Valor: t.valor, Cartao: t.cartao || '', Fatura: t.cartao ? t.fatura : '',
       Parcela: t.parcelas > 1 ? t.parcela : '', Parcelas: t.parcelas > 1 ? t.parcelas : '',
-      Grupo: t.grupo || '', Fixa: t.fixa || '', CriadoEm: t.criadoEm || '',
+      Grupo: t.grupo || '', Fixa: t.fixa || '', CriadoEm: t.criadoEm || '', Vinculo: t.vinculo || '',
     };
   }
   function cardFrom(r) {
@@ -673,10 +677,13 @@
     const ic = String(r.Icone || '').trim();
     return {
       nome, tipo: r.Tipo === 'Receita' ? 'Receita' : 'Despesa', cor: hex(r.Cor, '#8d99ae'),
-      icone: ICONS[ic] ? ic : guessIcon(nome), _r: r,
+      icone: ICONS[ic] ? ic : guessIcon(nome), orcamento: Math.abs(num(r.Orcamento)), _r: r,
     };
   }
-  function catTo(c) { return { ...(c._r || {}), Nome: c.nome, Tipo: c.tipo, Cor: c.cor, Icone: c.icone }; }
+  function catTo(c) { return { ...(c._r || {}), Nome: c.nome, Tipo: c.tipo, Cor: c.cor, Icone: c.icone, Orcamento: c.orcamento || '' }; }
+  // Receita de reembolso (alguém devolvendo um valor): não é renda, aparece à parte
+  const REEMB = 'Reembolsos';
+  const isReemb = (t) => t.tipo === 'Receita' && t.categoria === REEMB;
 
   // ================= Regras do cartão =================
   // "Melhor dia de compra" = dia em que a fatura vira. Compras a partir dele vão para a fatura seguinte.
@@ -692,12 +699,15 @@
     const closeYm = card.venc > card.fech ? fatYm : addMonths(fatYm, -1);
     return { vira: dateInMonth(closeYm, card.fech), vence };
   }
+  const pagaKey = (cardId, fatYm) => `${cardId}|${fatYm}`;
   function faturaStatus(card, fatYm) {
     const { vira, vence } = faturaDatas(card, fatYm);
     const hoje = todayISO();
+    const pg = state.pagas.get(pagaKey(card.id, fatYm));
+    if (pg) return { cls: 'paid', txt: `Paga em ${ddmm(pg.pagaEm || vence)}`, vence, paga: true };
     if (hoje < vira) return { cls: 'open', txt: `Aberta · vira em ${ddmm(vira)}`, vence };
     if (hoje <= vence) return { cls: 'closed', txt: `Fechada · vence ${ddmm(vence)}`, vence };
-    return { cls: 'past', txt: `Venceu em ${ddmm(vence)}`, vence };
+    return { cls: 'late', txt: `Venceu em ${ddmm(vence)} · não marcada como paga`, vence };
   }
   function cardHint(fech, venc) {
     if (!(fech >= 1 && fech <= 31 && venc >= 1 && venc <= 31)) return '';
@@ -710,14 +720,15 @@
   function usedLimit(card) {
     const hoje = todayISO();
     return state.tx
-      .filter((t) => t.cartao === card.id && t.tipo === 'Despesa' && t.fatura && faturaDatas(card, t.fatura).vence >= hoje)
+      .filter((t) => t.cartao === card.id && t.tipo === 'Despesa' && t.fatura && !state.pagas.has(pagaKey(card.id, t.fatura)) && faturaDatas(card, t.fatura).vence >= hoje)
       .reduce((s, t) => s + t.valor, 0);
   }
 
   // ================= Estado =================
   const state = {
     tx: [], cats: [], cards: [], fixas: [], ym: ymOfDate(new Date()), form: null, fat: null,
-    tab: 'inicio', filter: 'todos', lf: { card: '', cat: '', item: '' },
+    tab: 'inicio', filter: 'todos', lf: { card: '', cat: '', item: '' }, q: '',
+    config: {}, pagas: new Map(),
   };
 
   const cardById = (id) => state.cards.find((c) => c.id === id) || null;
@@ -734,6 +745,8 @@
     else if (pag) selo = `<span class="cat-card conta" title="Conta corrente">${svgIcon('dollar-sign', 11)}</span>`;
     return `<span class="cat-ico" style="--c:${c.cor}">${svgIcon(c.icone)}${selo}</span>`;
   }
+  // Fixo ao qual um lançamento pertence (campo Fixa = "idDoFixo|aaaa-mm")
+  const fixaDoTx = (t) => (t && t.fixa ? state.fixas.find((f) => f.id === t.fixa.split('|')[0]) || null : null);
   const fixaAtiva = (f, ym) => (f.inicio || '0000-00') <= ym && (!f.fim || f.fim >= ym);
 
   // O que conta em cada mês: compras no cartão contam no mês do vencimento da fatura
@@ -865,31 +878,154 @@
     $('#btn-hoje').hidden = ym === ymOfDate(new Date());
     const { items, prev } = monthData(ym);
 
-    let inc = 0;
-    let out = 0;
-    items.forEach((t) => { if (t.tipo === 'Receita') inc += t.valor; else out += t.valor; });
-    $('#sum-in').textContent = fmt(inc);
-    $('#sum-out').textContent = fmt(out);
-    const bal = inc - out;
+    const r = resumoMes(ym);
+    const subIn = [];
+    if (r.prevInc) subIn.push(`inclui ${fmt(r.prevInc)} previsto`);
+    $('#sum-in').textContent = fmt(r.inc + r.prevInc);
+    $('#sum-in-sub').textContent = subIn.join(' · ');
+    $('#sum-in-sub').hidden = !subIn.length;
+    const subOut = [];
+    if (r.prevOut) subOut.push(`inclui ${fmt(r.prevOut)} previsto`);
+    if (r.reemb) subOut.push(`reembolsos −${fmt(r.reemb)} · líquido ${fmt(r.out + r.prevOut - r.reemb)}`);
+    $('#sum-out').textContent = fmt(r.out + r.prevOut);
+    $('#sum-out-sub').textContent = subOut.join(' · ');
+    $('#sum-out-sub').hidden = !subOut.length;
+    const bal = r.inc + r.prevInc + r.reemb - r.out - r.prevOut;
     const b = $('#sum-bal');
     b.textContent = fmt(bal);
     b.classList.toggle('neg', bal < 0);
     b.classList.toggle('pos', bal > 0);
-
+    $('#sum-bal-lbl').textContent = (r.prevInc || r.prevOut) ? 'Saldo previsto do mês' : 'Saldo do mês';
     const sp = $('#sum-prev');
-    if (prev.length) {
-      const pv = prev.reduce((s, f) => s + (f.tipo === 'Receita' ? f.valor : -f.valor), 0);
-      sp.innerHTML = `Previsto com os fixos a confirmar: <strong>${fmt(bal + pv)}</strong>`;
+    if (r.prevInc || r.prevOut) {
+      sp.innerHTML = `Realizado até agora: <strong>${fmt(r.inc + r.reemb - r.out)}</strong>`;
       sp.hidden = false;
     } else sp.hidden = true;
 
+    renderConta();
+    renderOrcamento();
     renderPrev(prev.filter((f) => f.variavel));
     renderCardsSummary(items);
     renderRecent();
     renderLanc();
     renderCatBars($('#chart'), items, 'Despesa', 'Nenhuma despesa neste mês.');
-    renderCatBars($('#chart-rec'), items, 'Receita', 'Nenhuma receita neste mês.');
+    renderCatBars($('#chart-rec'), items.filter((t) => !isReemb(t)), 'Receita', 'Nenhuma receita neste mês.');
+    const re = r.reemb;
+    $('#chart-reemb').innerHTML = re
+      ? `<button class="link-row" type="button" data-hist="${REEMB}">Reembolsos recebidos (não contam como receita): <strong>${fmt(re)}</strong> ›</button>`
+      : '';
     renderEvo();
+  }
+
+  // Totais do mês: realizado + previstos (fixos ainda não lançados). Reembolsos ficam à parte.
+  function resumoMes(ym) {
+    const { items, prev } = monthData(ym);
+    const r = { inc: 0, out: 0, reemb: 0, prevInc: 0, prevOut: 0 };
+    items.forEach((t) => {
+      if (isReemb(t)) r.reemb += t.valor;
+      else if (t.tipo === 'Receita') r.inc += t.valor;
+      else r.out += t.valor;
+    });
+    prev.forEach((f) => {
+      if (f.tipo === 'Receita' && f.categoria === REEMB) r.reemb += f.valor;
+      else if (f.tipo === 'Receita') r.prevInc += f.valor;
+      else r.prevOut += f.valor;
+    });
+    return r;
+  }
+
+  // ----- Saldo da conta corrente -----
+  // Entra/sai da conta: lançamentos sem cartão (no dia) e faturas (no dia em que foi paga, ou no vencimento)
+  function saldoInicial() {
+    const v = state.config.SaldoInicial;
+    const d = state.config.SaldoInicialData;
+    if (!v || !d || !isISO(String(d.valor))) return null;
+    const em = state.config.SaldoInformadoEm;
+    return { valor: num(v.valor), data: String(d.valor), em: em ? String(em.valor) : '' };
+  }
+  // O saldo informado já inclui o que aconteceu até aquele momento do dia: no próprio dia,
+  // só entram lançamentos/pagamentos registrados DEPOIS de informar o saldo.
+  function fluxoConta(si, ate, comPrevistos) {
+    const de = si.data;
+    const depois = (data, criado) => data > de || (data === de && !!criado && !!si.em && criado > si.em);
+    let s2 = 0;
+    state.tx.forEach((t) => {
+      if (t.cartao || t.data > ate || !depois(t.data, t.criadoEm)) return;
+      s2 += t.tipo === 'Receita' ? t.valor : -t.valor;
+    });
+    // Faturas: total de cada cartão/mês, na data do pagamento
+    const fat = new Map();
+    state.tx.forEach((t) => {
+      if (!t.cartao || !t.fatura) return;
+      const k = pagaKey(t.cartao, t.fatura);
+      fat.set(k, (fat.get(k) || 0) + (t.tipo === 'Receita' ? -t.valor : t.valor));
+    });
+    fat.forEach((tot, k) => {
+      const [cid, ym] = k.split('|');
+      const card = cardById(cid);
+      const pg = state.pagas.get(k);
+      const quando = pg && pg.pagaEm ? pg.pagaEm : (card ? faturaDatas(card, ym).vence : dateInMonth(ym, 10));
+      if (quando <= ate && depois(quando, pg ? pg.marcadaEm : '')) s2 -= tot;
+    });
+    if (comPrevistos) {
+      for (let ym = de.slice(0, 7); ym <= ate.slice(0, 7); ym = addMonths(ym, 1)) {
+        monthData(ym).prev.forEach((f) => {
+          const d = dateInMonth(ym, f.dia);
+          if (d <= de || d > ate) return;
+          s2 += f.tipo === 'Receita' ? f.valor : -f.valor;
+        });
+      }
+    }
+    return s2;
+  }
+  function renderConta() {
+    const el = $('#conta-box');
+    const si = saldoInicial();
+    if (!si) {
+      el.innerHTML = `<div class="empty-cta"><p>Informe o saldo da sua conta corrente para ver quanto você tem hoje e quanto vai ter no fim do mês.</p>
+        <button class="btn btn-soft" type="button" data-open="saldo">Informar saldo da conta</button></div>`;
+      return;
+    }
+    const hoje = todayISO();
+    const fim = dateInMonth(state.ym, 31);
+    const atual = si.valor + (hoje >= si.data ? fluxoConta(si, hoje, false) : 0);
+    const fimMes = fim >= si.data ? si.valor + fluxoConta(si, fim, true) : null;
+    el.innerHTML = `
+      <button class="conta-btn" type="button" data-open="saldo" title="Ajustar saldo da conta">
+        <span class="conta-col"><span class="stat-label">Saldo hoje</span><strong class="${atual < 0 ? 'neg' : ''}">${fmt(atual)}</strong></span>
+        ${fimMes !== null ? `<span class="conta-col"><span class="stat-label">Previsto em ${ddmm(fim)}</span><strong class="${fimMes < 0 ? 'neg' : ''}">${fmt(fimMes)}</strong></span>` : ''}
+      </button>`;
+  }
+
+  // ----- Orçamento por categoria -----
+  function renderOrcamento() {
+    const el = $('#orc-box');
+    const cats = state.cats.filter((c) => c.tipo === 'Despesa' && c.orcamento > 0);
+    if (!cats.length) {
+      el.innerHTML = '<p class="empty">Defina um limite por mês para as categorias em <strong>Menu ⋯ → Categorias</strong> e acompanhe aqui.</p>';
+      return;
+    }
+    const { items, prev } = monthData(state.ym);
+    el.innerHTML = cats.map((c) => {
+      const usado = items.filter((t) => t.tipo === 'Despesa' && t.categoria === c.nome).reduce((s2, t) => s2 + t.valor, 0);
+      const prevista = prev.filter((f) => f.tipo === 'Despesa' && f.categoria === c.nome).reduce((s2, f) => s2 + f.valor, 0);
+      const pct = usado / c.orcamento;
+      const pctP = (usado + prevista) / c.orcamento;
+      const cls = pct > 1 ? 'over' : pct >= 0.8 ? 'warn' : 'ok';
+      const resto = c.orcamento - usado;
+      return `
+        <button class="orc-row ${cls}" type="button" data-hist="${esc(c.nome)}">
+          <div class="bar-head">
+            <span class="bar-name"><span class="bar-ico" style="color:${c.cor}">${svgIcon(c.icone, 16)}</span>${esc(c.nome)}</span>
+            <span class="bar-val">${fmt(usado)} <small>de ${fmt(c.orcamento)}</small></span>
+          </div>
+          <div class="orc-track">
+            <div class="orc-prev" style="width:${Math.min(100, pctP * 100)}%"></div>
+            <div class="orc-fill" style="width:${Math.min(100, pct * 100)}%"></div>
+          </div>
+          <div class="orc-note">${resto >= 0 ? `Restam ${fmt(resto)}` : `Passou ${fmt(-resto)} do limite`}${prevista ? ` · ${fmt(prevista)} de fixos previstos` : ''}</div>
+        </button>`;
+    }).join('');
   }
 
   function renderPrev(prev) {
@@ -973,7 +1109,9 @@
     y.setDate(y.getDate() - 1);
     if (iso === isoFromParts(y.getFullYear(), y.getMonth() + 1, y.getDate())) return 'Ontem';
     const [yy, mm, dd] = iso.split('-').map(Number);
-    return cap(new Date(yy, mm - 1, dd).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }));
+    const opt = { weekday: 'long', day: 'numeric', month: 'long' };
+    if (yy !== new Date().getFullYear()) opt.year = 'numeric';
+    return cap(new Date(yy, mm - 1, dd).toLocaleDateString('pt-BR', opt));
   }
 
   function txRowHTML(t, opts = {}) {
@@ -993,11 +1131,12 @@
   }
 
   // ----- Lista de lançamentos (pela data da compra; parcelado aparece uma vez) -----
-  function lancEntries(ym) {
+  // ym = mês; ym = null → todos os meses (busca)
+  function lancEntries(ym, comPrevistos) {
     const seen = new Set();
     const out = [];
     state.tx.forEach((t) => {
-      if (t.data.slice(0, 7) !== ym) return;
+      if (ym && t.data.slice(0, 7) !== ym) return;
       if (t.grupo && t.cartao) {
         if (seen.has(t.grupo)) return;
         seen.add(t.grupo);
@@ -1005,7 +1144,30 @@
         out.push({ ...g[0], total: round2(g.reduce((s, x) => s + x.valor, 0)), grupoN: g.length });
       } else out.push({ ...t, total: t.valor, grupoN: 0 });
     });
+    // Fixos que ainda não viraram lançamento aparecem como PREVISTO
+    if (ym && comPrevistos) {
+      monthData(ym).prev.forEach((f) => {
+        out.push({
+          id: 'prev:' + f.id, previsto: true, fixaId: f.id, data: dateInMonth(ym, f.dia), hora: '', tipo: f.tipo,
+          descricao: f.descricao, categoria: f.categoria, cartao: f.cartao, fatura: '', valor: f.valor, total: f.valor,
+          grupoN: 0, parcelas: 0, fixa: f.id, variavel: f.variavel, criadoEm: '',
+        });
+      });
+    }
     return out.sort((a, b) => b.data.localeCompare(a.data) || (b.hora || '').localeCompare(a.hora || '') || (b.criadoEm || '').localeCompare(a.criadoEm || ''));
+  }
+  function renderBusca(q) {
+    $('#card-chips').hidden = state.filter !== 'cartao';
+    const list = filtrar(lancEntries(null), state.filter).filter((e) => {
+      const alvo = norm([e.descricao, e.categoria, e.cartao ? cardName(e.cartao) : 'conta corrente', fmt(e.total), e.total.toFixed(2).replace('.', ',')].join(' '));
+      return alvo.includes(q);
+    });
+    const lim = list.slice(0, 200);
+    const tot = list.reduce((s2, e) => s2 + (e.tipo === 'Receita' ? e.total : -e.total), 0);
+    $('#list-head').innerHTML = `<span>${list.length} ${list.length === 1 ? 'resultado' : 'resultados'} em todos os meses</span>`
+      + (list.length ? `<span>Soma <strong class="${tot < 0 ? 'neg' : 'pos'}">${fmt(tot)}</strong></span>` : '')
+      + (list.length > 200 ? '<span>mostrando os 200 mais recentes</span>' : '');
+    $('#list').innerHTML = lim.length ? dayListHTML(lim) : '<p class="empty">Nada encontrado. Tente outra palavra ou valor.</p>';
   }
   function filtrar(list, f) {
     if (f === 'receitas') return list.filter((t) => t.tipo === 'Receita');
@@ -1015,6 +1177,15 @@
   }
   function lancRowHTML(e) {
     const rec = e.tipo === 'Receita';
+    if (e.previsto) {
+      const sub = [e.categoria, e.cartao ? cardName(e.cartao) : '', e.variavel ? 'valor variável' : 'lança sozinho no dia'].filter(Boolean).join(' · ');
+      return `
+      <button class="tx tx-prev" type="button" data-prev="${esc(e.fixaId)}">
+        ${catIco(e.categoria, e.cartao, true)}
+        <span class="tx-main"><span class="tx-desc">${esc(e.descricao)}</span><span class="tx-sub"><span class="badge off badge-sub">previsto</span>${esc(sub)}</span></span>
+        <span class="tx-val ${rec ? 'pos' : 'neg'}">${rec ? '+' : '−'} ${fmt(e.total)}</span>
+      </button>`;
+    }
     const parts = [e.categoria];
     if (e.cartao) {
       if (e.grupoN > 1) parts.push(`${cardName(e.cartao)} · ${e.grupoN}x de ${fmt(e.valor)}`);
@@ -1052,7 +1223,10 @@
   function renderLanc() {
     $$('[data-filter]').forEach((c) => c.classList.toggle('active', c.dataset.filter === state.filter));
     const lf = state.lf;
-    let list = filtrar(lancEntries(state.ym), state.filter);
+    const q = norm(state.q || '').trim();
+    $('.filter-row').hidden = !!q;
+    if (q) return renderBusca(q);
+    let list = filtrar(lancEntries(state.ym, true), state.filter);
 
     // Filtro por cartão (só no submenu Cartão)
     const cardBox = $('#card-chips');
@@ -1090,7 +1264,8 @@
     const inc = list.filter((t) => t.tipo === 'Receita').reduce((s, t) => s + t.total, 0);
     const out = list.filter((t) => t.tipo === 'Despesa').reduce((s, t) => s + t.total, 0);
     const n = list.length;
-    let head = `<span>${n} ${n === 1 ? 'lançamento' : 'lançamentos'}</span>`;
+    const np = list.filter((t) => t.previsto).length;
+    let head = `<span>${n} ${n === 1 ? 'lançamento' : 'lançamentos'}${np ? ` (${np} ${np === 1 ? 'previsto' : 'previstos'})` : ''}</span>`;
     if (inc) head += `<span>Entradas <strong class="pos">${fmt(inc)}</strong></span>`;
     if (out) head += `<span>Saídas <strong class="neg">${fmt(out)}</strong></span>`;
     if (state.filter === 'cartao' || (out && list.some((t) => t.cartao))) head += '<span>Compras no cartão pela data da compra</span>';
@@ -1110,10 +1285,9 @@
   function renderEvo() {
     const months = Array.from({ length: 5 }, (_, i) => addMonths(state.ym, i - 2));
     const data = months.map((ym) => {
-      let inc = 0;
-      let out = 0;
-      monthData(ym).items.forEach((t) => { if (t.tipo === 'Receita') inc += t.valor; else out += t.valor; });
-      return { ym, inc, out };
+      const r = resumoMes(ym);
+      // receitas sem reembolsos; despesas já descontando os reembolsos
+      return { ym, inc: r.inc + r.prevInc, out: Math.max(0, r.out + r.prevOut - r.reemb) };
     });
     const max = Math.max(1, ...data.map((d) => Math.max(d.inc, d.out)));
     const box = $('#chart-evo');
@@ -1195,6 +1369,7 @@
     $('#f-var').checked = false;
     $('#f-valor').placeholder = '0,00';
     $('#f-reemb').checked = false;
+    $('#f-fixupd').checked = true;
     $('#f-reemb-quem').value = '';
     $('#f-parc').value = '1';
     $('#desc-sug').hidden = true;
@@ -1248,6 +1423,9 @@
         ? `Também serão lançadas ${n} receitas de ${fmt(Math.floor((v0 / n) * 100) / 100)} (reembolso de ${quem})${card ? ', cada uma no vencimento da fatura' : ''}.`
         : `Também será lançada uma receita de ${fmt(v0)} (reembolso de ${quem})${card ? ' no vencimento da fatura' : ''}.`);
     }
+    const fx = form.mode === 'edit' ? fixaDoTx(form.tx) : null;
+    $('#row-fixupd').hidden = !fx;
+    if (fx) hints.push(`Este lançamento é do fixo "${fx.descricao}"${fx.variavel ? ' (valor variável)' : ''}, de ${monthName(form.tx.fixa.split('|')[1] || state.ym).toLowerCase()}.`);
     if (form.mode === 'edit' && form.tx.parcelas > 1) hints.push(`Parcela ${form.tx.parcela} de ${form.tx.parcelas}. A alteração vale só para esta parcela.`);
     if (form.mode === 'confirm') hints.push(`Fixo de ${monthName(state.ym).toLowerCase()}. Ajuste o valor se veio diferente.`);
     $('#tx-hint').textContent = hints.join(' ');
@@ -1290,10 +1468,17 @@
         if (old.parcelas > 1 && old.parcela > 1) fatura = addMonths(fatura, old.parcela - 1);
       } else if (cartao) fatura = old.fatura; // cartão excluído: mantém a fatura
       const t = { ...old, tipo, valor, descricao, categoria, data, hora, cartao, fatura };
+      // Também atualiza o cadastro do fixo, para valer nos próximos meses
+      const fx = fixaDoTx(old);
+      const novoFixo = fx && $('#f-fixupd').checked ? { ...fx, tipo, descricao, categoria, cartao, valor } : null;
       return run(async () => {
         await DB.update('Lancamentos', txTo(t));
         state.tx = state.tx.map((x) => (x.id === t.id ? t : x));
-      }, 'Lançamento atualizado', dlg);
+        if (novoFixo) {
+          await DB.update('Fixas', fixaTo(novoFixo));
+          state.fixas = state.fixas.map((x) => (x.id === novoFixo.id ? novoFixo : x));
+        }
+      }, novoFixo ? 'Lançamento e fixo atualizados' : 'Lançamento atualizado', dlg);
     }
 
     const base = {
@@ -1337,12 +1522,13 @@
       if (!quem) return setError(errEl, 'Informe quem vai devolver o valor.');
       if (!state.cats.some((c) => c.nome === 'Reembolsos')) novaCat = { nome: 'Reembolsos', tipo: 'Receita', cor: '#4d908e', icone: 'undo-2' };
       const g2 = n > 1 ? uid() : '';
+      const vinc = novos[0].grupo || novos[0].id; // liga o reembolso à compra
       novos.forEach((d, i) => {
         const quando = card && d.fatura ? faturaDatas(card, d.fatura).vence : d.data;
         reemb.push({
           ...base, id: uid(), tipo: 'Receita', categoria: 'Reembolsos', descricao: `Reembolso ${quem}`,
           cartao: '', fatura: '', fixa: '', data: quando, hora: '', valor: d.valor,
-          grupo: g2, parcela: n > 1 ? i + 1 : 0, parcelas: n > 1 ? n : 0,
+          grupo: g2, parcela: n > 1 ? i + 1 : 0, parcelas: n > 1 ? n : 0, vinculo: vinc,
         });
       });
     }
@@ -1358,19 +1544,74 @@
     }, msg, dlg);
   }
 
+  // Escolha entre várias opções (ex.: excluir só esta parcela / as próximas / todas)
+  function askChoice(msg, opcoes, check) {
+    return new Promise((resolve) => {
+      const d = $('#dlg-choice');
+      $('#choice-msg').textContent = msg;
+      const row = $('#choice-check-row');
+      row.hidden = !check;
+      if (check) { $('#choice-check-lbl').textContent = check.label; $('#choice-check').checked = !!check.checked; }
+      $('#choice-btns').innerHTML = opcoes.map((o) => `<button class="btn ${o.kind === 'danger' ? 'btn-danger-solid' : 'btn-soft'}" type="button" data-choice="${o.key}">${esc(o.label)}</button>`).join('')
+        + '<button class="btn btn-ghost" type="button" data-choice="">Cancelar</button>';
+      const done = (key) => { d.onclose = null; if (d.open) d.close(); resolve({ key, check: check ? $('#choice-check').checked : false }); };
+      $('#choice-btns').onclick = (e) => { const bt = e.target.closest('[data-choice]'); if (bt) done(bt.dataset.choice); };
+      d.onclose = () => done('');
+      d.showModal();
+    });
+  }
+
+  // Reembolsos ligados a uma despesa: pelo vínculo salvo, ou (lançamentos antigos) pela mesma descrição
+  function reembolsosDe(t) {
+    if (t.tipo !== 'Despesa') return { lista: [], certo: false };
+    const chave = t.grupo || t.id;
+    const ligados = state.tx.filter((x) => x.vinculo && x.vinculo === chave);
+    if (ligados.length) return { lista: ligados, certo: true };
+    const k = descKey(t.descricao);
+    const parecidos = state.tx.filter((x) => isReemb(x) && !x.vinculo && descKey(x.descricao).replace(/^reembolso /, '') === k);
+    return { lista: parecidos, certo: false };
+  }
+
   async function deleteTx() {
     const t = state.form && state.form.tx;
     if (!t) return;
-    const grupo = t.grupo ? state.tx.filter((x) => x.grupo === t.grupo) : [t];
-    const msg = grupo.length > 1
-      ? `Este lançamento foi parcelado em ${t.parcelas}x. Todas as ${grupo.length} parcelas serão excluídas.`
-      : 'Excluir este lançamento?';
-    if (!(await askConfirm(msg))) return;
-    const ids = new Set(grupo.map((x) => x.id));
+    const grupo = t.grupo ? state.tx.filter((x) => x.grupo === t.grupo).sort((a2, b2) => a2.parcela - b2.parcela) : [t];
+    const re = reembolsosDe(t);
+    const parcelado = grupo.length > 1;
+    const opcoes = [];
+    if (parcelado) {
+      opcoes.push({ key: 'esta', label: `Só esta parcela (${t.parcela}/${t.parcelas})` });
+      const prox = grupo.filter((x) => x.parcela >= t.parcela).length;
+      if (t.parcela > 1 && prox > 1) opcoes.push({ key: 'proximas', label: `Esta e as próximas (${prox} parcelas)` });
+      opcoes.push({ key: 'todas', label: `Todas as ${grupo.length} parcelas`, kind: 'danger' });
+    } else opcoes.push({ key: 'todas', label: 'Excluir', kind: 'danger' });
+    let check = null;
+    if (re.lista.length) {
+      const grupos = new Set(re.lista.map((x) => x.grupo || x.id)).size;
+      check = {
+        label: re.certo
+          ? `Excluir também o reembolso ligado a esta compra (${re.lista.length} ${re.lista.length === 1 ? 'lançamento' : 'parcelas'})`
+          : `Excluir também ${grupos === 1 ? 'o reembolso' : grupos + ' reembolsos'} "${re.lista[0].descricao}" (${re.lista.length} ${re.lista.length === 1 ? 'lançamento' : 'lançamentos'})`,
+        checked: re.certo,
+      };
+    }
+    const msg = parcelado
+      ? `"${t.descricao}" foi parcelado em ${t.parcelas}x. O que você quer excluir?`
+      : `Excluir "${t.descricao}"?`;
+    const r = await askChoice(msg, opcoes, check);
+    if (!r.key) return;
+    const pega = (lista, ref) => {
+      if (r.key === 'esta') return lista.filter((x) => (x.parcelas > 1 ? x.parcela === ref : true));
+      if (r.key === 'proximas') return lista.filter((x) => (x.parcelas > 1 ? x.parcela >= ref : true));
+      return lista;
+    };
+    const alvo = pega(grupo, t.parcela);
+    if (r.check) alvo.push(...pega(re.lista, t.parcela));
+    const ids = new Set(alvo.map((x) => x.id));
     await run(async () => {
       await DB.remove('Lancamentos', [...ids]);
       state.tx = state.tx.filter((x) => !ids.has(x.id));
-    }, grupo.length > 1 ? 'Parcelas excluídas' : 'Lançamento excluído', $('#dlg-tx'));
+    }, ids.size > 1 ? `${ids.size} lançamentos excluídos` : 'Lançamento excluído', $('#dlg-tx'));
   }
 
   // ================= Autocompletar da descrição =================
@@ -1587,9 +1828,64 @@
     $('#fat-title').textContent = `Fatura ${cardName(cardId)}`;
     $('#fat-sub').textContent = `${monthName(ym)}${card ? ' · ' + faturaStatus(card, ym).txt : ''}`;
     $('#fat-total').textContent = fmt(total);
+    const pg = state.pagas.get(pagaKey(cardId, ym));
+    $('#fat-pay').hidden = !card || !items.length;
+    $('#fat-pay').textContent = pg ? 'Desmarcar pagamento' : 'Marcar como paga hoje';
+    $('#fat-pay').className = pg ? 'btn btn-ghost' : 'btn btn-primary';
     $('#fat-list').innerHTML = items.length
       ? items.map((t) => txRowHTML(t, { showDate: true })).join('')
       : '<p class="empty">Nenhuma compra nesta fatura.</p>';
+  }
+
+  async function toggleFaturaPaga() {
+    const { cardId, ym } = state.fat;
+    const k = pagaKey(cardId, ym);
+    const pg = state.pagas.get(k);
+    const total = state.tx.filter((t) => t.cartao === cardId && t.fatura === ym).reduce((s2, t) => s2 + (t.tipo === 'Receita' ? -t.valor : t.valor), 0);
+    await run(async () => {
+      if (pg) {
+        await DB.remove('FaturasPagas', [k]);
+        state.pagas.delete(k);
+      } else {
+        const rec = { ID: k, Cartao: cardId, Fatura: ym, PagaEm: todayISO(), Valor: round2(total), MarcadaEm: new Date().toISOString() };
+        await DB.add('FaturasPagas', [rec]);
+        state.pagas.set(k, { id: k, cartao: cardId, fatura: ym, pagaEm: rec.PagaEm, valor: rec.Valor, marcadaEm: rec.MarcadaEm, _r: rec });
+      }
+    }, pg ? 'Pagamento desmarcado' : 'Fatura marcada como paga');
+  }
+
+  // ================= Saldo da conta =================
+  async function setConfig(chave, valor) {
+    const atual = state.config[chave];
+    const rec = { ...((atual && atual._r) || {}), Chave: chave, Valor: valor };
+    if (atual) await DB.update('Config', rec);
+    else await DB.add('Config', [rec]);
+    state.config[chave] = { valor, _r: rec };
+  }
+  function openSaldo() {
+    if (!freshEnough()) return;
+    // Abre com a data de hoje e o saldo que o site calcula agora: é só corrigir para o valor do banco
+    const si = saldoInicial();
+    const hoje = todayISO();
+    const atual = si && hoje >= si.data ? round2(si.valor + fluxoConta(si, hoje, false)) : null;
+    $('#s-valor').value = atual !== null ? atual.toFixed(2).replace('.', ',') : '';
+    $('#s-data').value = hoje;
+    setError($('#dlg-saldo .dlg-error'), '');
+    $('#dlg-saldo').showModal();
+    setTimeout(() => $('#s-valor').focus(), 50);
+  }
+  async function saveSaldo(e) {
+    e.preventDefault();
+    const dlg = $('#dlg-saldo');
+    const v = round2(parseValor($('#s-valor').value.replace(/^\s*−/, '-')));
+    const d = $('#s-data').value;
+    if (!Number.isFinite(v)) return setError(dlg.querySelector('.dlg-error'), 'Informe o saldo (pode ser negativo, ex.: -150,00).');
+    if (!isISO(d)) return setError(dlg.querySelector('.dlg-error'), 'Informe a data do saldo.');
+    await run(async () => {
+      await setConfig('SaldoInicial', v);
+      await setConfig('SaldoInicialData', d);
+      await setConfig('SaldoInformadoEm', new Date().toISOString());
+    }, 'Saldo da conta salvo', dlg);
   }
 
   // ================= Cartões =================
@@ -1818,6 +2114,8 @@
     $('#ce-title').textContent = c.nome;
     $('#ce-sub').textContent = c.tipo === 'Receita' ? 'Categoria de receita' : 'Categoria de despesa';
     $('#ce-cor').value = c.cor;
+    $('#row-ce-orc').hidden = c.tipo !== 'Despesa';
+    $('#ce-orc').value = c.orcamento ? c.orcamento.toFixed(2).replace('.', ',') : '';
     setError($('#dlg-cat .dlg-error'), '');
     updateEditCatIcon();
     $('#dlg-cat').showModal();
@@ -1832,6 +2130,10 @@
   async function saveCat(e) {
     e.preventDefault();
     const c = state.editCat;
+    const o = $('#ce-orc').value.trim();
+    const ov = o ? round2(parseValor(o)) : 0;
+    if (o && !(ov >= 0)) return setError($('#dlg-cat .dlg-error'), 'Orçamento inválido.');
+    c.orcamento = c.tipo === 'Despesa' ? ov : 0;
     await run(async () => {
       await DB.update('Categorias', catTo(c));
       state.cats = state.cats.map((x) => (x.nome === c.nome ? c : x));
@@ -1994,7 +2296,10 @@
 
   // ================= Dados =================
   async function loadData() {
-    const [tx, cats, cards, fixas] = await Promise.all(TABLES.map((t) => DB.list(t)));
+    const [tx, cats, cards, fixas, config, pagas] = await Promise.all(TABLES.map((t) => DB.list(t)));
+    state.config = {};
+    (config || []).forEach((r) => { state.config[String(r.Chave)] = { valor: r.Valor, _r: r }; });
+    state.pagas = new Map((pagas || []).map((r) => [String(r.ID), { id: String(r.ID), cartao: String(r.Cartao), fatura: normYM(r.Fatura), pagaEm: r.PagaEm || '', valor: num(r.Valor), marcadaEm: String(r.MarcadaEm || ''), _r: r }]));
     state.cats = cats.map(catFrom).filter((c) => c.nome);
     state.cards = cards.map(cardFrom);
     state.fixas = fixas.map(fixaFrom);
@@ -2024,6 +2329,7 @@
     else if (name === 'cats') openCats();
     else if (name === 'help') openHelp();
     else if (name === 'seg') openSeg();
+    else if (name === 'saldo') openSaldo();
   }
 
   function bindUI() {
@@ -2152,6 +2458,13 @@
     $('#ic-q').addEventListener('input', renderPicker);
     $('#btn-help').addEventListener('click', openHelp);
     $('#seg-now').addEventListener('click', backupAgora);
+    $('#fat-pay').addEventListener('click', toggleFaturaPaga);
+    $('#form-saldo').addEventListener('submit', saveSaldo);
+    let qTimer;
+    $('#q').addEventListener('input', () => {
+      clearTimeout(qTimer);
+      qTimer = setTimeout(() => { state.q = $('#q').value; renderLanc(); }, 150);
+    });
     $('#seg-xlsx').addEventListener('click', baixarExcel);
     $('#seg-restore').addEventListener('click', mostrarBackups);
 
@@ -2271,9 +2584,11 @@
 
     return {
       Lancamentos: tx.map(txTo),
-      Categorias: DEFAULT_CATS.map((c) => ({ ...c })),
+      Categorias: DEFAULT_CATS.map((c) => ({ ...c, Orcamento: c.Nome === 'Alimentação' ? 700 : c.Nome === 'Lazer' ? 150 : '' })),
       Cartoes: [c1, c2].map(cardTo),
       Fixas: fx.map(fixaTo),
+      Config: [{ Chave: 'SaldoInicial', Valor: 2350 }, { Chave: 'SaldoInicialData', Valor: dateInMonth(addMonths(cur, -1), 1) }],
+      FaturasPagas: [],
     };
   }
 

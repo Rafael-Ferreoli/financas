@@ -2,6 +2,9 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
+  <!-- Segurança: só roda scripts do próprio site e só conversa com as APIs do Google -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://sheets.googleapis.com https://www.googleapis.com https://oauth2.googleapis.com; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Minhas Finanças</title>
   <meta name="description" content="Controle de receitas e despesas com os dados no seu Google Drive.">
@@ -10,11 +13,8 @@
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-title" content="Finanças">
-  <script>
-    // Aplica o tema salvo antes de desenhar a página (evita piscar)
-    try { var t = localStorage.getItem('mf_theme'); if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}
-  </script>
-  <link rel="stylesheet" href="style.css?v=20261103a">
+  <script src="boot.js?v=20261103c"></script>
+  <link rel="stylesheet" href="style.css?v=20261103c">
 </head>
 <body>
 
@@ -63,11 +63,15 @@
 
       <!-- ===== Aba Início ===== -->
       <div class="view" data-view="inicio">
+      <section class="card conta-card">
+        <div class="card-head"><h2>Conta corrente</h2><button class="link-btn" type="button" data-open="saldo">Ajustar</button></div>
+        <div id="conta-box"></div>
+      </section>
       <section class="summary">
-        <div class="stat"><span class="stat-label">Receitas</span><span id="sum-in" class="stat-value pos"></span></div>
-        <div class="stat"><span class="stat-label">Despesas</span><span id="sum-out" class="stat-value neg"></span></div>
+        <div class="stat"><span class="stat-label">Receitas</span><span id="sum-in" class="stat-value pos"></span><span id="sum-in-sub" class="stat-sub" hidden></span></div>
+        <div class="stat"><span class="stat-label">Despesas</span><span id="sum-out" class="stat-value neg"></span><span id="sum-out-sub" class="stat-sub" hidden></span></div>
         <div class="stat stat-main">
-          <span class="stat-label">Saldo do mês</span>
+          <span id="sum-bal-lbl" class="stat-label">Saldo do mês</span>
           <span id="sum-bal" class="stat-value"></span>
           <span id="sum-prev" class="sum-prev" hidden></span>
         </div>
@@ -91,6 +95,7 @@
 
       <!-- ===== Aba Lançamentos ===== -->
       <div class="view" data-view="lanc" hidden>
+        <input id="q" class="search" type="search" placeholder="Buscar em todos os meses: descrição, categoria, cartão ou valor" autocomplete="off" aria-label="Buscar lançamentos">
         <div class="chips" role="tablist" aria-label="Filtro">
           <button class="chip active" type="button" data-filter="todos">Todos</button>
           <button class="chip" type="button" data-filter="receitas">Receitas</button>
@@ -112,6 +117,10 @@
       <!-- ===== Aba Gráficos ===== -->
       <div class="view" data-view="graf" hidden>
         <section class="card">
+          <div class="card-head"><h2>Orçamento do mês</h2><button class="link-btn" type="button" data-open="cats">Definir limites</button></div>
+          <div id="orc-box"></div>
+        </section>
+        <section class="card">
           <h2>Receitas e despesas</h2>
           <div id="chart-evo"></div>
         </section>
@@ -122,6 +131,7 @@
         <section class="card">
           <div class="card-head"><h2>Receitas por categoria</h2><span class="tiny muted">toque para ver o histórico</span></div>
           <div id="chart-rec"></div>
+          <div id="chart-reemb"></div>
         </section>
       </div>
     </main>
@@ -172,6 +182,7 @@
       <p id="tx-hint" class="hint" hidden></p>
       <label class="check" id="row-fixa"><input type="checkbox" id="f-fixa"><span>Repetir todo mês (lançamento fixo)</span></label>
       <label class="check sub-check" id="row-var" hidden><input type="checkbox" id="f-var"><span>Valor variável: confirmar todo mês</span></label>
+      <label class="check" id="row-fixupd" hidden><input type="checkbox" id="f-fixupd" checked><span>Aplicar também nos próximos meses (atualiza o fixo)</span></label>
       <label class="check" id="row-reemb" hidden><input type="checkbox" id="f-reemb"><span>Alguém vai me devolver esse valor</span></label>
       <div class="field sub-check" id="row-reemb-quem" hidden>
         <label for="f-reemb-quem">Quem vai devolver</label>
@@ -196,7 +207,7 @@
       </div>
       <div class="fat-total"><span class="muted">Total da fatura</span><strong id="fat-total"></strong></div>
       <div id="fat-list" class="dlg-scroll"></div>
-      <div class="actions"><span class="spacer"></span><button class="btn btn-ghost" type="button" data-close>Fechar</button></div>
+      <div class="actions"><button id="fat-pay" class="btn btn-primary" type="button">Marcar como paga hoje</button><span class="spacer"></span><button class="btn btn-ghost" type="button" data-close>Fechar</button></div>
     </div>
   </dialog>
 
@@ -325,6 +336,7 @@
         <div class="field"><span>Ícone</span><button id="ce-ico" class="ico-pick big" type="button" aria-label="Trocar ícone" title="Trocar ícone"></button></div>
         <label class="field"><span>Cor</span><input id="ce-cor" type="color"></label>
       </div>
+      <label class="field" id="row-ce-orc"><span>Orçamento por mês (opcional)</span><input id="ce-orc" inputmode="decimal" placeholder="Ex.: 800,00" autocomplete="off"></label>
       <p class="error dlg-error" hidden></p>
       <div class="actions">
         <button type="button" id="btn-cat-del" class="btn btn-danger">Excluir</button>
@@ -384,7 +396,8 @@
             <li>Confira data e hora (já vêm preenchidas com agora) e toque em <strong>Salvar</strong>.</li>
           </ol>
           <p>Se a data for de outro mês que não o atual, o site pede uma confirmação, para evitar lançar no mês errado sem querer.</p>
-          <p>Para corrigir ou excluir, toque no lançamento na lista.</p>
+          <p>Para corrigir ou excluir, toque no lançamento na lista. Num parcelado, dá para excluir <strong>só esta parcela</strong>, <strong>esta e as próximas</strong> (compra cancelada ou quitada antes) ou <strong>todas</strong>.</p>
+          <p><strong>Buscar</strong>: na aba Lançamentos, o campo de busca procura em todos os meses, por descrição, categoria, cartão ou valor.</p>
         </details>
         <details>
           <summary>Cadastrar um cartão de crédito</summary>
@@ -404,6 +417,8 @@
           </ol>
           <p><strong>Parcelas sem cartão</strong>: em receitas e na conta corrente também dá para parcelar. Cada parcela cai num mês, no mesmo dia (ex.: alguém vai te pagar R$ 600 em 3x → 3 receitas de R$ 200, uma por mês). As parcelas futuras aparecem com a etiqueta <em>a receber</em> ou <em>a pagar</em>.</p>
           <p><strong>Compra para outra pessoa</strong>: marque <em>Alguém vai me devolver esse valor</em> e escreva o nome. O site lança a despesa e, junto, as receitas de reembolso com as mesmas parcelas. No cartão, cada reembolso cai no dia do vencimento da fatura. Elas ficam na categoria <em>Reembolsos</em>.</p>
+          <p>Reembolsos <strong>não contam como receita</strong>: aparecem à parte, no card de Despesas ("reembolsos −R$… · líquido R$…"), e o saldo do mês continua certo. Ao excluir a compra, o site oferece excluir também o reembolso ligado a ela.</p>
+          <p><strong>Fatura paga</strong>: abra a fatura (toque no cartão no Início) e use <em>Marcar como paga hoje</em>. O saldo da conta desconta a fatura nesse dia; sem marcar, ela é descontada no vencimento.</p>
           <p>Na lista, compras no cartão aparecem com uma <strong>bolinha com o desenho de um cartão</strong> no canto do ícone, na cor do cartão usado.</p>
           <p>No <strong>Início</strong>, cada cartão mostra a fatura do mês. Toque nele para ver todas as compras daquela fatura. As compras no cartão entram no saldo do mês em que a fatura vence.</p>
         </details>
@@ -414,6 +429,8 @@
             <li><strong>Valor sempre igual</strong> (salário, prestação, internet): é lançado sozinho quando chega o dia.</li>
             <li><strong>Valor variável</strong> (luz, água): marque <em>Valor variável</em>. Todo mês ele aparece em <strong>Fixos a confirmar</strong>; toque em <strong>Confirmar</strong>, ajuste o valor e salve.</li>
           </ol>
+          <p>Ao editar um lançamento que veio de um fixo, o quadro verde avisa de qual fixo ele é. Deixe marcado <strong>Aplicar também nos próximos meses</strong> para a mudança (categoria, descrição, valor, pagamento) valer daqui para frente. Desmarcado, muda só aquele mês.</p>
+          <p>Nos meses em que ainda não chegou o dia, os fixos aparecem como <strong>PREVISTO</strong> na lista de lançamentos e já somam nos cards de Receitas, Despesas e Saldo ("inclui R$… previsto"). Quando o dia chega, os de valor igual viram lançamento sozinhos.</p>
           <p>Parou de pagar algo? Edite o fixo e preencha <strong>Termina em</strong>.</p>
         </details>
         <details>
@@ -450,6 +467,21 @@
           <summary>Onde ficam meus dados</summary>
           <p>Tudo fica na planilha <strong>Minhas Finanças (dados do app) - NÃO APAGAR</strong>, dentro da pasta <strong>Minhas Finanças - app (não apagar)</strong> no seu Google Drive (menu <strong>⋯</strong> → <em>Abrir planilha no Google</em>). Ninguém além de você tem acesso. Dá para abrir no Excel ou ligar no Power BI.</p>
           <p>Evite renomear as abas ou os títulos das colunas da planilha.</p>
+        </details>
+        <details>
+          <summary>Saldo da conta corrente</summary>
+          <ol>
+            <li>No Início, em <strong>Conta corrente</strong>, toque em <em>Informar saldo da conta</em> e digite o saldo que aparece no banco e a data.</li>
+            <li>O site mostra o <strong>saldo hoje</strong> e o <strong>previsto para o fim do mês</strong> (com fixos e faturas que ainda vão vencer).</li>
+            <li>Ficou diferente do banco? Toque em <em>Ajustar</em> e informe o saldo de novo.</li>
+          </ol>
+        </details>
+        <details>
+          <summary>Orçamento por categoria</summary>
+          <ol>
+            <li>Menu <strong>⋯</strong> → <strong>Categorias</strong> → toque na categoria → <em>Orçamento por mês</em> (ex.: Alimentação R$ 800).</li>
+            <li>Na aba <strong>Gráficos</strong>, em <em>Orçamento do mês</em>, a barra mostra quanto já foi usado: verde até 80%, amarela até 100% e vermelha quando passa. A parte clara são os fixos previstos.</li>
+          </ol>
         </details>
         <details>
           <summary>Backup e segurança dos dados</summary>
@@ -489,6 +521,30 @@
     </div>
   </dialog>
 
+  <!-- Saldo da conta -->
+  <dialog id="dlg-saldo">
+    <form id="form-saldo" class="dlg-body" novalidate>
+      <h2>Saldo da conta corrente</h2>
+      <p class="small-text muted">Olhe o saldo no app do banco e informe aqui. A partir dessa data, o site soma o que entra e sai da conta: lançamentos sem cartão e o pagamento das faturas.</p>
+      <div class="row2">
+        <label class="field"><span>Saldo (R$)</span><input id="s-valor" inputmode="decimal" placeholder="Ex.: 1.250,00" autocomplete="off"></label>
+        <label class="field"><span>Saldo em</span><input id="s-data" type="date"></label>
+      </div>
+      <p class="hint">Use o saldo que o banco mostra agora: o que você já lançou até este momento não é descontado de novo. Se ficar diferente do banco, é só informar o saldo de novo.</p>
+      <p class="error dlg-error" hidden></p>
+      <div class="actions"><span class="spacer"></span><button type="button" class="btn btn-ghost" data-close>Cancelar</button><button type="submit" class="btn btn-primary">Salvar</button></div>
+    </form>
+  </dialog>
+
+  <!-- Escolha com várias opções -->
+  <dialog id="dlg-choice">
+    <div class="dlg-body">
+      <p id="choice-msg" class="confirm-msg"></p>
+      <label class="check" id="choice-check-row" hidden><input type="checkbox" id="choice-check"><span id="choice-check-lbl"></span></label>
+      <div id="choice-btns" class="seg-btns"></div>
+    </div>
+  </dialog>
+
   <!-- Confirmação -->
   <dialog id="dlg-confirm">
     <div class="dlg-body">
@@ -503,18 +559,8 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script>
-    // Se algo falhar ao carregar, mostra o motivo em vez de ficar em "Carregando…"
-    window.addEventListener('error', function (e) {
-      var box = document.getElementById('screen-loading');
-      var msg = document.getElementById('loading-msg');
-      if (!box || box.hidden || !msg) return;
-      var what = e.message || ('não foi possível carregar ' + ((e.target && (e.target.src || e.target.href)) || 'um arquivo'));
-      msg.textContent = 'Erro ao abrir o site: ' + what + '. Recarregue a página (Ctrl+F5 no PC).';
-    }, true);
-  </script>
-  <script src="config.js?v=20261103a"></script>
-  <script src="icons.js?v=20261103a"></script>
-  <script src="app.js?v=20261103a"></script>
+  <script src="config.js?v=20261103c"></script>
+  <script src="icons.js?v=20261103c"></script>
+  <script src="app.js?v=20261103c"></script>
 </body>
 </html>
