@@ -13,8 +13,8 @@
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-title" content="Finanças">
-  <script src="boot.js?v=20261103d"></script>
-  <link rel="stylesheet" href="style.css?v=20261103d">
+  <script src="boot.js?v=20261112a"></script>
+  <link rel="stylesheet" href="style.css?v=20261112a">
 </head>
 <body>
 
@@ -478,6 +478,7 @@
             <li>Se a planilha for parar na <strong>lixeira</strong>, ao abrir o site ele pergunta se quer restaurar.</li>
             <li>Se ela for <strong>apagada de vez</strong>, o site oferece recriar tudo a partir do último backup.</li>
             <li>Menu <strong>⋯</strong> → <strong>Backup e segurança</strong>: fazer backup na hora, restaurar um backup escolhido ou baixar uma cópia em Excel.</li>
+            <li><strong>Importar dados de um arquivo</strong>: traz lançamentos, fixos, cartões e categorias de um arquivo de dados do Minhas Finanças (por exemplo, dados convertidos de outra planilha). Só acrescenta: nada é apagado nem duplicado. Numa conta nova, as categorias padrão são trocadas pelas do arquivo.</li>
           </ul>
         </details>
         <details>
@@ -502,6 +503,8 @@
         <button id="seg-now" class="btn btn-soft" type="button">Fazer backup agora</button>
         <button id="seg-restore" class="btn btn-soft" type="button">Restaurar um backup</button>
         <button id="seg-xlsx" class="btn btn-soft" type="button">Baixar cópia em Excel</button>
+        <button id="seg-import" class="btn btn-soft" type="button">Importar dados de um arquivo</button>
+        <input id="imp-file" type="file" accept=".json,application/json" hidden>
         <a id="seg-folder" class="btn btn-ghost" target="_blank" rel="noopener" hidden>Abrir a pasta no Drive</a>
       </div>
       <div id="seg-list" class="dlg-scroll"></div>
@@ -532,8 +535,8 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="config.js?v=20261103d"></script>
-  <script src="icons.js?v=20261103d"></script>
-  <script src="app.js?v=20261103d"></script>
+  <script src="config.js?v=20261112a"></script>
+  <script src="icons.js?v=20261112a"></script>
+  <script src="app.js?v=20261112a"></script>
 </body>
 </html>

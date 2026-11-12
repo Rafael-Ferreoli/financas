@@ -2092,7 +2092,7 @@
     const info = $('#seg-info');
     const btns = ['#seg-now', '#seg-xlsx', '#seg-restore'];
     if (DEMO) {
-      info.innerHTML = '<p class="muted">No modo demonstração nada é salvo, então não há backup. No site de verdade esta tela mostra os backups automáticos.</p>';
+      info.innerHTML = '<p class="muted">No modo demonstração nada é salvo, então não há backup. Você pode testar a importação: os dados ficam só nesta tela.</p>';
       btns.forEach((b) => { $(b).disabled = true; });
       $('#seg-folder').hidden = true;
       $('#seg-list').innerHTML = '';
@@ -2181,6 +2181,52 @@
     } catch (err) {
       if (err instanceof AuthError) return onAuthLost();
       showLogin('Erro ao restaurar: ' + err.message);
+    }
+  }
+
+  // ================= Importar dados de um arquivo =================
+  // Aceita o mesmo formato do backup ({ app, tabelas }). Só acrescenta: nada existente é apagado ou duplicado.
+  async function importarArquivo(file) {
+    let data;
+    try { data = JSON.parse(await file.text()); } catch (e) { toast('Arquivo inválido: não é um arquivo de dados do Minhas Finanças.'); return; }
+    if (!data || data.app !== APP_TAG || !data.tabelas) { toast('Este arquivo não é do Minhas Finanças.'); return; }
+    const T = data.tabelas;
+    const novos = {};
+    let total = 0;
+    for (const t of TABLES) {
+      const k = SCHEMA[t].key;
+      const atuais = new Set((await DB.list(t)).map((r) => String(r[k])));
+      novos[t] = (T[t] || []).filter((r) => r && r[k] !== undefined && r[k] !== '' && !atuais.has(String(r[k])));
+      total += novos[t].length;
+    }
+    if (!total) { toast('Nada novo para importar: esses dados já estão aqui.'); return; }
+    // Conta nova (sem lançamentos): as categorias padrão dão lugar às do arquivo
+    const trocarCats = !state.tx.length && (T.Categorias || []).length > 0;
+    const nomesArq = new Set((T.Categorias || []).map((c) => String(c.Nome)));
+    const tirar = trocarCats ? state.cats.filter((c) => !nomesArq.has(c.nome)).map((c) => c.nome) : [];
+    const n = (t) => novos[t].length;
+    const msg = `Importar ${n('Lancamentos')} lançamentos, ${n('Fixas')} fixos, ${n('Cartoes')} ${n('Cartoes') === 1 ? 'cartão' : 'cartões'} e ${n('Categorias')} categorias${data.origem ? ` (${data.origem})` : ''}? Nada do que já existe será apagado ou duplicado.`
+      + (tirar.length ? ` Como esta conta ainda não tem lançamentos, as ${tirar.length} categorias padrão serão trocadas pelas do arquivo.` : '');
+    if (!(await askConfirm(msg, 'Importar', 'ok'))) return;
+    $('#dlg-seg').open && $('#dlg-seg').close();
+    loading('Importando seus dados…');
+    try {
+      if (tirar.length) await DB.remove('Categorias', tirar);
+      for (const t of TABLES) {
+        for (let i = 0; i < novos[t].length; i += 500) {
+          loading(`Importando ${t === 'Lancamentos' ? 'lançamentos' : t.toLowerCase()}… ${Math.min(i + 500, novos[t].length)}/${novos[t].length}`);
+          await DB.add(t, novos[t].slice(i, i + 500));
+        }
+      }
+      await loadData();
+      show('app');
+      toast(`${total} itens importados`);
+    } catch (err) {
+      if (err instanceof AuthError) return onAuthLost();
+      console.error(err);
+      await loadData().catch(() => {});
+      show('app');
+      toast('Erro ao importar: ' + err.message);
     }
   }
 
@@ -2360,6 +2406,12 @@
     $('#ic-q').addEventListener('input', renderPicker);
     $('#btn-help').addEventListener('click', openHelp);
     $('#seg-now').addEventListener('click', backupAgora);
+    $('#seg-import').addEventListener('click', () => $('#imp-file').click());
+    $('#imp-file').addEventListener('change', () => {
+      const f = $('#imp-file').files[0];
+      $('#imp-file').value = '';
+      if (f) importarArquivo(f);
+    });
     $('#fat-pay').addEventListener('click', toggleFaturaPaga);
     let qTimer;
     $('#q').addEventListener('input', () => {
